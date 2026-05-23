@@ -28,11 +28,23 @@ class PharmacyAccessService
             return false;
         }
 
-        if (! $user->isCompanyUser() || ! $productId) {
+        if ($user->isWarehouseUser()) {
+            return false;
+        }
+
+        if (! $user->isCompanyUser()) {
             return true;
         }
 
-        return ! $this->hasApprovedAccess($user->company_id, $productId);
+        if ($user->sensitive_unlock_expires_at && $user->sensitive_unlock_expires_at->isFuture()) {
+            return false;
+        }
+
+        if ($productId && $this->hasApprovedAccess($user->company_id, $productId)) {
+            return false;
+        }
+
+        return true;
     }
 
     public function maskPharmacyName(int $displayIndex): string

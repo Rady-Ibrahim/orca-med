@@ -12,37 +12,62 @@ use App\Models\Supplier;
 use App\Models\UploadBatch;
 use App\Models\UploadBatchError;
 use App\Models\User;
+use App\Models\Warehouse;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 class SaleImportService
 {
-    private const ERROR_SCHEMA = 'schema';
-
     private const ERROR_VALIDATION = 'validation';
 
     private const ERROR_NOT_FOUND = 'not_found';
 
     private const ERROR_DUPLICATE = 'duplicate';
 
-    public function process(UploadedFile $file, User $user): SaleImportResult
+    public function __construct(
+        private readonly WarehouseService $warehouseService,
+    ) {}
+
+    public function createQueuedBatch(UploadedFile $file, User $user, ?int $warehouseIdForAdmin = null): UploadBatch
     {
+        $warehouseId = $user->isWarehouseUser()
+            ? $user->warehouse_id
+            : $warehouseIdForAdmin;
+
+        if ($user->isWarehouseUser() && ! $warehouseId) {
+            throw new \InvalidArgumentException('مستخدم المخزن يجب أن يكون مرتبطاً بمخزن.');
+        }
+
         $storedPath = $file->store('imports/sales', 'local');
 
-        $batch = UploadBatch::create([
+        return UploadBatch::create([
             'uploaded_by' => $user->id,
+            'warehouse_id' => $warehouseId,
             'original_filename' => $file->getClientOriginalName(),
             'stored_path' => $storedPath,
+            'status' => UploadBatchStatus::Queued,
+        ]);
+    }
+
+    public function processBatch(UploadBatch $batch): SaleImportResult
+    {
+        $batch->update([
             'status' => UploadBatchStatus::Processing,
-            'started_at' => now(),
+            'started_at' => $batch->started_at ?? now(),
         ]);
 
         try {
-            $rows = Excel::toArray([], Storage::disk('local')->path($storedPath))[0] ?? [];
+            $fullPath = Storage::disk('local')->path($batch->stored_path);
+            if (! is_readable($fullPath)) {
+                return $this->failBatch($batch, 'ملف الاستيراد غير موجود أو غير قابل للقراءة.');
+            }
+
+            $rows = Excel::toArray([], $fullPath)[0] ?? [];
 
             if (empty($rows)) {
                 return $this->failBatch($batch, 'الملف فارغ أو لا يحتوي على بيانات.');
@@ -167,7 +192,22 @@ class SaleImportService
         $suppliersCache = [];
         $pharmaciesCache = [];
 
-        return collect($rows)->values()->map(function (array $row, int $index) use ($mapping, $productsByCode, $provincesByName, &$suppliersCache, &$pharmaciesCache) {
+        $warehouse = $batch->warehouse_id ? Warehouse::find($batch->warehouse_id) : null;
+        $shadowSupplierId = null;
+        if ($warehouse) {
+            $shadowSupplierId = $this->warehouseService->ensureShadowSupplier($warehouse)->id;
+        }
+
+        return collect($rows)->values()->map(function (array $row, int $index) use (
+            $mapping,
+            $productsByCode,
+            $provincesByName,
+            &$suppliersCache,
+            &$pharmaciesCache,
+            $warehouse,
+            $shadowSupplierId,
+            $batch
+        ) {
             $rowNumber = $index + 2;
             $raw = $this->extractRow($row, $mapping);
             $errors = [];
@@ -176,6 +216,8 @@ class SaleImportService
             $quantity = (int) ($raw['quantity'] ?? 0);
             $pharmacyName = trim((string) ($raw['pharmacy_name'] ?? ''));
             $soldAt = $this->parseDate($raw['sold_at'] ?? null);
+            $licenseNumber = isset($mapping['license_number']) ? trim((string) ($raw['license_number'] ?? '')) : '';
+            $licenseNumber = $licenseNumber !== '' ? $licenseNumber : null;
 
             if ($productCode === '' || ! $productsByCode->has($productCode)) {
                 $errors[] = [
@@ -225,38 +267,78 @@ class SaleImportService
             $supplierId = null;
 
             if (empty($errors) && $provinceId) {
-                $supplierKey = "{$provinceId}|{$supplierName}";
-                if ($supplierName !== '') {
-                    $supplierId = $suppliersCache[$supplierKey] ?? null;
-                    if (! $supplierId) {
-                        $supplier = Supplier::firstOrCreate(
-                            ['province_id' => $provinceId, 'name' => $supplierName],
-                            ['phone' => null, 'address' => null]
-                        );
-                        $supplierId = $supplier->id;
-                        $suppliersCache[$supplierKey] = $supplierId;
+                if ($warehouse && $shadowSupplierId) {
+                    $supplierId = $shadowSupplierId;
+
+                    if ($licenseNumber) {
+                        $cacheKey = 'lic|'.$licenseNumber;
+                        $pharmacyId = $pharmaciesCache[$cacheKey] ?? null;
+                        if (! $pharmacyId) {
+                            $pharmacy = Pharmacy::updateOrCreate(
+                                ['license_number' => $licenseNumber],
+                                [
+                                    'supplier_id' => $supplierId,
+                                    'warehouse_id' => $warehouse->id,
+                                    'province_id' => $provinceId,
+                                    'name' => $pharmacyName,
+                                    'phone' => null,
+                                    'address' => null,
+                                ]
+                            );
+                            $pharmacyId = $pharmacy->id;
+                            $pharmaciesCache[$cacheKey] = $pharmacyId;
+                        }
+                    } else {
+                        $cacheKey = 'w|'.$warehouse->id.'|n|'.$pharmacyName.'|p|'.$provinceId;
+                        $pharmacyId = $pharmaciesCache[$cacheKey] ?? null;
+                        if (! $pharmacyId) {
+                            $pharmacy = Pharmacy::firstOrCreate(
+                                [
+                                    'warehouse_id' => $warehouse->id,
+                                    'supplier_id' => $supplierId,
+                                    'name' => $pharmacyName,
+                                    'province_id' => $provinceId,
+                                ],
+                                ['phone' => null, 'address' => null]
+                            );
+                            $pharmacyId = $pharmacy->id;
+                            $pharmaciesCache[$cacheKey] = $pharmacyId;
+                        }
                     }
                 } else {
-                    $supplier = Supplier::where('province_id', $provinceId)->first();
-                    $supplierId = $supplier?->id;
-                }
+                    $supplierKey = "{$provinceId}|{$supplierName}";
+                    if ($supplierName !== '') {
+                        $supplierId = $suppliersCache[$supplierKey] ?? null;
+                        if (! $supplierId) {
+                            $supplier = Supplier::firstOrCreate(
+                                ['province_id' => $provinceId, 'name' => $supplierName],
+                                ['phone' => null, 'address' => null]
+                            );
+                            $supplierId = $supplier->id;
+                            $suppliersCache[$supplierKey] = $supplierId;
+                        }
+                    } else {
+                        $supplier = Supplier::where('province_id', $provinceId)->first();
+                        $supplierId = $supplier?->id;
+                    }
 
-                if (! $supplierId) {
-                    $errors[] = [
-                        'type' => self::ERROR_NOT_FOUND,
-                        'column' => 'supplier_name',
-                        'message' => 'المورد مطلوب أو غير موجود في هذه المحافظة.',
-                    ];
-                } else {
-                    $pharmacyKey = "{$supplierId}|{$pharmacyName}";
-                    $pharmacyId = $pharmaciesCache[$pharmacyKey] ?? null;
-                    if (! $pharmacyId) {
-                        $pharmacy = Pharmacy::firstOrCreate(
-                            ['supplier_id' => $supplierId, 'name' => $pharmacyName],
-                            ['province_id' => $provinceId, 'phone' => null, 'address' => null]
-                        );
-                        $pharmacyId = $pharmacy->id;
-                        $pharmaciesCache[$pharmacyKey] = $pharmacyId;
+                    if (! $supplierId) {
+                        $errors[] = [
+                            'type' => self::ERROR_NOT_FOUND,
+                            'column' => 'supplier_name',
+                            'message' => 'المورد مطلوب أو غير موجود في هذه المحافظة.',
+                        ];
+                    } else {
+                        $pharmacyKey = "{$supplierId}|{$pharmacyName}";
+                        $pharmacyId = $pharmaciesCache[$pharmacyKey] ?? null;
+                        if (! $pharmacyId) {
+                            $pharmacy = Pharmacy::firstOrCreate(
+                                ['supplier_id' => $supplierId, 'name' => $pharmacyName],
+                                ['province_id' => $provinceId, 'phone' => null, 'address' => null, 'warehouse_id' => null]
+                            );
+                            $pharmacyId = $pharmacy->id;
+                            $pharmaciesCache[$pharmacyKey] = $pharmacyId;
+                        }
                     }
                 }
             }
@@ -265,7 +347,13 @@ class SaleImportService
             $importHash = null;
 
             if ($productId && isset($pharmacyId) && $soldAt) {
-                $importHash = $this->buildImportHash($productId, $pharmacyId, $soldAt, $quantity);
+                $importHash = $this->buildImportHash(
+                    (int) $productId,
+                    (int) $pharmacyId,
+                    $soldAt,
+                    $quantity,
+                    $batch->warehouse_id
+                );
             }
 
             return [
@@ -276,6 +364,7 @@ class SaleImportService
                 'pharmacy_id' => $pharmacyId ?? null,
                 'supplier_id' => $supplierId ?? null,
                 'province_id' => $provinceId,
+                'warehouse_id' => $batch->warehouse_id,
                 'quantity' => $quantity,
                 'sold_at' => $soldAt,
                 'import_hash' => $importHash,
@@ -315,6 +404,7 @@ class SaleImportService
                 'pharmacy_id' => $row['pharmacy_id'],
                 'supplier_id' => $row['supplier_id'],
                 'province_id' => $row['province_id'],
+                'warehouse_id' => $row['warehouse_id'],
                 'upload_batch_id' => $batch->id,
                 'quantity' => $row['quantity'],
                 'sold_at' => $row['sold_at'],
@@ -395,18 +485,20 @@ class SaleImportService
         }
 
         if (is_numeric($value)) {
-            return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            return Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
         }
 
         try {
-            return \Carbon\Carbon::parse((string) $value)->format('Y-m-d');
+            return Carbon::parse((string) $value)->format('Y-m-d');
         } catch (\Throwable) {
             return null;
         }
     }
 
-    private function buildImportHash(int $productId, int $pharmacyId, string $soldAt, int $quantity): string
+    private function buildImportHash(int $productId, int $pharmacyId, string $soldAt, int $quantity, ?int $warehouseId): string
     {
-        return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}|{$quantity}");
+        $w = $warehouseId ?? 0;
+
+        return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}|{$quantity}|{$w}");
     }
 }

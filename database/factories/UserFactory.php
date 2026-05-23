@@ -3,12 +3,13 @@
 namespace Database\Factories;
 
 use App\Enums\UserRole;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\User>
+ * @extends Factory<User>
  */
 class UserFactory extends Factory
 {
@@ -24,6 +25,7 @@ class UserFactory extends Factory
             'remember_token' => Str::random(10),
             'role' => UserRole::Admin,
             'company_id' => null,
+            'warehouse_id' => null,
         ];
     }
 
@@ -31,6 +33,15 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'role' => UserRole::Company,
+            'warehouse_id' => null,
+        ]);
+    }
+
+    public function warehouse(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::Warehouse,
+            'company_id' => null,
         ]);
     }
 

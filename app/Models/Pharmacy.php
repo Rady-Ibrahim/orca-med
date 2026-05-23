@@ -10,8 +10,10 @@ class Pharmacy extends Model
 {
     protected $fillable = [
         'supplier_id',
+        'warehouse_id',
         'province_id',
         'name',
+        'license_number',
         'phone',
         'address',
     ];
@@ -19,6 +21,11 @@ class Pharmacy extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function province(): BelongsTo

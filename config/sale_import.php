@@ -14,6 +14,7 @@ return [
         'supplier_name' => ['supplier_name', 'supplier', 'اسم_المورد', 'المورد'],
         'province_name' => ['province_name', 'province', 'المحافظة', 'محافظة'],
         'sold_at' => ['sold_at', 'sale_date', 'date', 'تاريخ_البيع', 'التاريخ'],
+        'license_number' => ['license_number', 'license', 'رقم_الترخيص', 'رقم الترخيص', 'سجل_صيدلي'],
     ],
 
     'required_fields' => [

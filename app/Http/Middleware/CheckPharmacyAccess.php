@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Product;
 use App\Services\PharmacyAccessService;
 use Closure;
 use Illuminate\Http\Request;
@@ -20,9 +21,11 @@ class CheckPharmacyAccess
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        $productId = $request->route('product')
-            ?? $request->route('product_id')
-            ?? ($request->filled('product_id') ? (int) $request->query('product_id') : null);
+        $routeProduct = $request->route('product');
+        $productId = $routeProduct instanceof Product
+            ? $routeProduct->getKey()
+            : ($request->route('product_id')
+                ?? ($request->filled('product_id') ? (int) $request->query('product_id') : null));
 
         $maskPharmacies = $this->pharmacyAccessService->shouldMaskPharmacies($user, $productId);
 

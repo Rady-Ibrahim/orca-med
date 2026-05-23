@@ -6,6 +6,7 @@ enum UserRole: string
 {
     case Admin = 'admin';
     case Company = 'company';
+    case Warehouse = 'warehouse';
 
     public function isAdmin(): bool
     {
@@ -15,5 +16,10 @@ enum UserRole: string
     public function isCompany(): bool
     {
         return $this === self::Company;
+    }
+
+    public function isWarehouse(): bool
+    {
+        return $this === self::Warehouse;
     }
 }

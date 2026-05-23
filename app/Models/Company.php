@@ -12,12 +12,18 @@ class Company extends Model
         'contact_email',
         'contact_phone',
         'is_active',
+        'sensitive_view_password',
+    ];
+
+    protected $hidden = [
+        'sensitive_view_password',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'sensitive_view_password' => 'hashed',
         ];
     }
 

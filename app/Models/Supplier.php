@@ -10,6 +10,7 @@ class Supplier extends Model
 {
     protected $fillable = [
         'province_id',
+        'warehouse_id',
         'name',
         'phone',
         'address',
@@ -18,6 +19,11 @@ class Supplier extends Model
     public function province(): BelongsTo
     {
         return $this->belongsTo(Province::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function pharmacies(): HasMany

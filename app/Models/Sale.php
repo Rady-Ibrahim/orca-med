@@ -12,6 +12,7 @@ class Sale extends Model
         'pharmacy_id',
         'supplier_id',
         'province_id',
+        'warehouse_id',
         'upload_batch_id',
         'quantity',
         'sold_at',
@@ -49,5 +50,10 @@ class Sale extends Model
     public function uploadBatch(): BelongsTo
     {
         return $this->belongsTo(UploadBatch::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 }
