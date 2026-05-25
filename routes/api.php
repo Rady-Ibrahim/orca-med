@@ -66,7 +66,7 @@ Route::prefix('v1')->group(function () {
             Route::get('sales/{sale}', [SaleController::class, 'show']);
         });
 
-        Route::middleware(EnsureUserIsAdmin::class)->prefix('admin')->group(function () {
+        Route::middleware(EnsureUserIsAdmin::class)->prefix('admin')->as('api.')->group(function () {
             Route::post('provinces', [ProvinceController::class, 'store']);
             Route::put('provinces/{province}', [ProvinceController::class, 'update']);
             Route::patch('provinces/{province}', [ProvinceController::class, 'update']);

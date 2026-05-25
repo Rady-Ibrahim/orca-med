@@ -12,7 +12,6 @@ use App\Models\Supplier;
 use App\Models\UploadBatch;
 use App\Models\UploadBatchError;
 use App\Models\User;
-use App\Models\Warehouse;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -29,25 +28,22 @@ class SaleImportService
 
     private const ERROR_DUPLICATE = 'duplicate';
 
-    public function __construct(
-        private readonly WarehouseService $warehouseService,
-    ) {}
+    public function __construct() {}
 
-    public function createQueuedBatch(UploadedFile $file, User $user, ?int $warehouseIdForAdmin = null): UploadBatch
-    {
-        $warehouseId = $user->isWarehouseUser()
-            ? $user->warehouse_id
-            : $warehouseIdForAdmin;
-
-        if ($user->isWarehouseUser() && ! $warehouseId) {
-            throw new \InvalidArgumentException('مستخدم المخزن يجب أن يكون مرتبطاً بمخزن.');
-        }
-
+    public function createQueuedBatch(
+        UploadedFile $file,
+        User $user,
+        int $companyId,
+        int $supplierId,
+        int $provinceId
+    ): UploadBatch {
         $storedPath = $file->store('imports/sales', 'local');
 
         return UploadBatch::create([
             'uploaded_by' => $user->id,
-            'warehouse_id' => $warehouseId,
+            'company_id' => $companyId,
+            'supplier_id' => $supplierId,
+            'province_id' => $provinceId,
             'original_filename' => $file->getClientOriginalName(),
             'stored_path' => $storedPath,
             'status' => UploadBatchStatus::Queued,
@@ -74,6 +70,7 @@ class SaleImportService
             }
 
             $headerRow = array_shift($rows);
+            \Log::info('Import header row', ['batch_id' => $batch->id, 'header' => $headerRow]);
             $mapping = $this->validateExcelSchema($headerRow);
 
             if ($mapping === null) {
@@ -187,44 +184,106 @@ class SaleImportService
      */
     public function mapExcelToDatabase(array $rows, array $mapping, UploadBatch $batch): Collection
     {
-        $productsByCode = Product::pluck('id', 'code');
-        $provincesByName = Province::pluck('id', 'name');
-        $suppliersCache = [];
+        // Use company_id from batch to scope products
+        $productsByName = Product::where('company_id', $batch->company_id)
+            ->pluck('id', 'name')
+            ->toArray();
         $pharmaciesCache = [];
-
-        $warehouse = $batch->warehouse_id ? Warehouse::find($batch->warehouse_id) : null;
-        $shadowSupplierId = null;
-        if ($warehouse) {
-            $shadowSupplierId = $this->warehouseService->ensureShadowSupplier($warehouse)->id;
-        }
+        $productsCache = [];
 
         return collect($rows)->values()->map(function (array $row, int $index) use (
             $mapping,
-            $productsByCode,
-            $provincesByName,
-            &$suppliersCache,
+            &$productsByName,
             &$pharmaciesCache,
-            $warehouse,
-            $shadowSupplierId,
+            &$productsCache,
             $batch
         ) {
             $rowNumber = $index + 2;
             $raw = $this->extractRow($row, $mapping);
             $errors = [];
 
-            $productCode = trim((string) ($raw['product_code'] ?? ''));
+            $outletName = trim((string) ($raw['outlet_name'] ?? ''));
+            $productName = trim((string) ($raw['product_name'] ?? ''));
             $quantity = (int) ($raw['quantity'] ?? 0);
-            $pharmacyName = trim((string) ($raw['pharmacy_name'] ?? ''));
-            $soldAt = $this->parseDate($raw['sold_at'] ?? null);
-            $licenseNumber = isset($mapping['license_number']) ? trim((string) ($raw['license_number'] ?? '')) : '';
-            $licenseNumber = $licenseNumber !== '' ? $licenseNumber : null;
+            $soldAtRaw = $raw['sold_at'] ?? null;
+            $soldAt = $this->parseDate($soldAtRaw);
+            if ($soldAtRaw && ! $soldAt) {
+                \Log::warning('Failed to parse date', ['row' => $rowNumber, 'raw_value' => $soldAtRaw, 'type' => gettype($soldAtRaw)]);
+            }
+            $unitPrice = isset($raw['unit_price']) ? (float) $raw['unit_price'] : null;
+            $discount = isset($raw['discount']) ? (float) $raw['discount'] : null;
 
-            if ($productCode === '' || ! $productsByCode->has($productCode)) {
-                $errors[] = [
-                    'type' => self::ERROR_NOT_FOUND,
-                    'column' => 'product_code',
-                    'message' => "كود الصنف غير موجود: {$productCode}",
+            // Skip "رصيد اول المده" rows
+            if (stripos($productName, 'رصيد') !== false || stripos($productName, 'أول') !== false) {
+                return [
+                    'row_number' => $rowNumber,
+                    'raw' => $raw,
+                    'errors' => [
+                        [
+                            'type' => self::ERROR_VALIDATION,
+                            'column' => 'product_name',
+                            'message' => 'تم تجاهل صف "رصيد أول المدة".',
+                        ]
+                    ],
+                    'product_id' => null,
+                    'pharmacy_id' => null,
+                    'supplier_id' => null,
+                    'province_id' => null,
+                    'warehouse_id' => null,
+                    'quantity' => 0,
+                    'sold_at' => null,
+                    'unit_price' => null,
+                    'discount' => null,
+                    'import_hash' => null,
+                    'upload_batch_id' => $batch->id,
                 ];
+            }
+
+            // Skip rows with Excel formulas (starting with =)
+            if (str_starts_with($productName, '=') || str_starts_with($outletName, '=') || str_starts_with((string) ($raw['sold_at'] ?? ''), '=')) {
+                return [
+                    'row_number' => $rowNumber,
+                    'raw' => $raw,
+                    'errors' => [
+                        [
+                            'type' => self::ERROR_VALIDATION,
+                            'column' => 'product_name',
+                            'message' => 'تم تجاهل صف يحتوي صيغة Excel.',
+                        ]
+                    ],
+                    'product_id' => null,
+                    'pharmacy_id' => null,
+                    'supplier_id' => null,
+                    'province_id' => null,
+                    'warehouse_id' => null,
+                    'quantity' => 0,
+                    'sold_at' => null,
+                    'unit_price' => null,
+                    'discount' => null,
+                    'import_hash' => null,
+                    'upload_batch_id' => $batch->id,
+                ];
+            }
+
+            // Auto-create product if not exists
+            $productId = $productsByName[$productName] ?? null;
+            if ($productName !== '' && ! $productId) {
+                $productId = $productsCache[$productName] ?? null;
+                if (! $productId) {
+                    $product = Product::firstOrCreate(
+                        [
+                            'company_id' => $batch->company_id,
+                            'name' => $productName,
+                        ],
+                        [
+                            'code' => strtoupper(substr(md5($productName), 0, 8)),
+                            'description' => null,
+                        ]
+                    );
+                    $productId = $product->id;
+                    $productsCache[$productName] = $productId;
+                    $productsByName[$productName] = $productId;
+                }
             }
 
             if ($quantity <= 0) {
@@ -235,11 +294,11 @@ class SaleImportService
                 ];
             }
 
-            if ($pharmacyName === '') {
+            if ($outletName === '') {
                 $errors[] = [
                     'type' => self::ERROR_VALIDATION,
-                    'column' => 'pharmacy_name',
-                    'message' => 'اسم الصيدلية مطلوب.',
+                    'column' => 'outlet_name',
+                    'message' => 'اسم النقطة (المخزن/الصيدلية) مطلوب.',
                 ];
             }
 
@@ -251,108 +310,33 @@ class SaleImportService
                 ];
             }
 
-            $provinceName = trim((string) ($raw['province_name'] ?? ''));
-            $supplierName = trim((string) ($raw['supplier_name'] ?? ''));
-
-            $provinceId = $provinceName !== '' ? $provincesByName->get($provinceName) : null;
-            if ($provinceName !== '' && ! $provinceId) {
-                $errors[] = [
-                    'type' => self::ERROR_NOT_FOUND,
-                    'column' => 'province_name',
-                    'message' => "المحافظة غير موجودة: {$provinceName}",
-                ];
-            }
-
+            $productId = $productsByName[$productName] ?? null;
             $pharmacyId = null;
-            $supplierId = null;
 
-            if (empty($errors) && $provinceId) {
-                if ($warehouse && $shadowSupplierId) {
-                    $supplierId = $shadowSupplierId;
-
-                    if ($licenseNumber) {
-                        $cacheKey = 'lic|'.$licenseNumber;
-                        $pharmacyId = $pharmaciesCache[$cacheKey] ?? null;
-                        if (! $pharmacyId) {
-                            $pharmacy = Pharmacy::updateOrCreate(
-                                ['license_number' => $licenseNumber],
-                                [
-                                    'supplier_id' => $supplierId,
-                                    'warehouse_id' => $warehouse->id,
-                                    'province_id' => $provinceId,
-                                    'name' => $pharmacyName,
-                                    'phone' => null,
-                                    'address' => null,
-                                ]
-                            );
-                            $pharmacyId = $pharmacy->id;
-                            $pharmaciesCache[$cacheKey] = $pharmacyId;
-                        }
-                    } else {
-                        $cacheKey = 'w|'.$warehouse->id.'|n|'.$pharmacyName.'|p|'.$provinceId;
-                        $pharmacyId = $pharmaciesCache[$cacheKey] ?? null;
-                        if (! $pharmacyId) {
-                            $pharmacy = Pharmacy::firstOrCreate(
-                                [
-                                    'warehouse_id' => $warehouse->id,
-                                    'supplier_id' => $supplierId,
-                                    'name' => $pharmacyName,
-                                    'province_id' => $provinceId,
-                                ],
-                                ['phone' => null, 'address' => null]
-                            );
-                            $pharmacyId = $pharmacy->id;
-                            $pharmaciesCache[$cacheKey] = $pharmacyId;
-                        }
-                    }
-                } else {
-                    $supplierKey = "{$provinceId}|{$supplierName}";
-                    if ($supplierName !== '') {
-                        $supplierId = $suppliersCache[$supplierKey] ?? null;
-                        if (! $supplierId) {
-                            $supplier = Supplier::firstOrCreate(
-                                ['province_id' => $provinceId, 'name' => $supplierName],
-                                ['phone' => null, 'address' => null]
-                            );
-                            $supplierId = $supplier->id;
-                            $suppliersCache[$supplierKey] = $supplierId;
-                        }
-                    } else {
-                        $supplier = Supplier::where('province_id', $provinceId)->first();
-                        $supplierId = $supplier?->id;
-                    }
-
-                    if (! $supplierId) {
-                        $errors[] = [
-                            'type' => self::ERROR_NOT_FOUND,
-                            'column' => 'supplier_name',
-                            'message' => 'المورد مطلوب أو غير موجود في هذه المحافظة.',
-                        ];
-                    } else {
-                        $pharmacyKey = "{$supplierId}|{$pharmacyName}";
-                        $pharmacyId = $pharmaciesCache[$pharmacyKey] ?? null;
-                        if (! $pharmacyId) {
-                            $pharmacy = Pharmacy::firstOrCreate(
-                                ['supplier_id' => $supplierId, 'name' => $pharmacyName],
-                                ['province_id' => $provinceId, 'phone' => null, 'address' => null, 'warehouse_id' => null]
-                            );
-                            $pharmacyId = $pharmacy->id;
-                            $pharmaciesCache[$pharmacyKey] = $pharmacyId;
-                        }
-                    }
+            if (empty($errors) && $outletName) {
+                $pharmacyKey = "{$batch->supplier_id}|{$batch->province_id}|{$outletName}";
+                $pharmacyId = $pharmaciesCache[$pharmacyKey] ?? null;
+                if (! $pharmacyId) {
+                    $pharmacy = Pharmacy::firstOrCreate(
+                        [
+                            'supplier_id' => $batch->supplier_id,
+                            'province_id' => $batch->province_id,
+                            'name' => $outletName,
+                        ],
+                        ['phone' => null, 'address' => null, 'warehouse_id' => null]
+                    );
+                    $pharmacyId = $pharmacy->id;
+                    $pharmaciesCache[$pharmacyKey] = $pharmacyId;
                 }
             }
 
-            $productId = $productsByCode->get($productCode);
             $importHash = null;
 
             if ($productId && isset($pharmacyId) && $soldAt) {
                 $importHash = $this->buildImportHash(
                     (int) $productId,
                     (int) $pharmacyId,
-                    $soldAt,
-                    $quantity,
-                    $batch->warehouse_id
+                    $soldAt
                 );
             }
 
@@ -362,11 +346,13 @@ class SaleImportService
                 'errors' => $errors,
                 'product_id' => $productId,
                 'pharmacy_id' => $pharmacyId ?? null,
-                'supplier_id' => $supplierId ?? null,
-                'province_id' => $provinceId,
-                'warehouse_id' => $batch->warehouse_id,
+                'supplier_id' => $batch->supplier_id,
+                'province_id' => $batch->province_id,
+                'warehouse_id' => null,
                 'quantity' => $quantity,
                 'sold_at' => $soldAt,
+                'unit_price' => $unitPrice,
+                'discount' => $discount,
                 'import_hash' => $importHash,
                 'upload_batch_id' => $batch->id,
             ];
@@ -379,15 +365,9 @@ class SaleImportService
      */
     public function detectDuplicates(Collection $rows): array
     {
-        $hashes = $rows->pluck('import_hash')->filter();
-        $duplicatesInFile = $hashes->duplicates()->values()->all();
-
-        $existing = Sale::query()
-            ->whereIn('import_hash', $hashes->unique()->values())
-            ->pluck('import_hash')
-            ->all();
-
-        return array_values(array_unique(array_merge($duplicatesInFile, $existing)));
+        // Allow duplicates - return empty array to skip duplicate checking
+        // This allows multiple sales for same product+pharmacy+date
+        return [];
     }
 
     /**
@@ -404,10 +384,12 @@ class SaleImportService
                 'pharmacy_id' => $row['pharmacy_id'],
                 'supplier_id' => $row['supplier_id'],
                 'province_id' => $row['province_id'],
-                'warehouse_id' => $row['warehouse_id'],
+                'warehouse_id' => null,
                 'upload_batch_id' => $batch->id,
                 'quantity' => $row['quantity'],
                 'sold_at' => $row['sold_at'],
+                'unit_price' => $row['unit_price'],
+                'discount' => $row['discount'],
                 'import_hash' => $row['import_hash'],
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -489,16 +471,19 @@ class SaleImportService
         }
 
         try {
+            // Try d/m/Y format first (common in Arabic Excel files)
+            if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', (string) $value)) {
+                return Carbon::createFromFormat('d/m/Y', (string) $value)->format('Y-m-d');
+            }
             return Carbon::parse((string) $value)->format('Y-m-d');
         } catch (\Throwable) {
             return null;
         }
     }
 
-    private function buildImportHash(int $productId, int $pharmacyId, string $soldAt, int $quantity, ?int $warehouseId): string
+    private function buildImportHash(int $productId, int $pharmacyId, string $soldAt): string
     {
-        $w = $warehouseId ?? 0;
-
-        return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}|{$quantity}|{$w}");
+        // Duplicate detection: same product + same pharmacy + same date
+        return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}");
     }
 }

@@ -8,20 +8,18 @@ return [
     |--------------------------------------------------------------------------
     */
     'columns' => [
-        'product_code' => ['product_code', 'code', 'كود_الصنف', 'كود الصنف'],
+        'outlet_name' => ['outlet_name', 'اسم_المخزن', 'اسم المخزن', 'اسم_الصيدلية', 'الصيدلية', 'المخزن', 'الاسم'],
+        'product_name' => ['product_name', 'name', 'اسم_الصنف', 'اسم الصنف', 'الصنف'],
         'quantity' => ['quantity', 'qty', 'الكمية', 'كمية'],
-        'pharmacy_name' => ['pharmacy_name', 'pharmacy', 'اسم_الصيدلية', 'الصيدلية'],
-        'supplier_name' => ['supplier_name', 'supplier', 'اسم_المورد', 'المورد'],
-        'province_name' => ['province_name', 'province', 'المحافظة', 'محافظة'],
         'sold_at' => ['sold_at', 'sale_date', 'date', 'تاريخ_البيع', 'التاريخ'],
-        'license_number' => ['license_number', 'license', 'رقم_الترخيص', 'رقم الترخيص', 'سجل_صيدلي'],
+        'unit_price' => ['unit_price', 'price', 'السعر'],
+        'discount' => ['discount', 'الخصم', 'خصم 1'],
     ],
 
     'required_fields' => [
-        'product_code',
+        'outlet_name',
+        'product_name',
         'quantity',
-        'pharmacy_name',
-        'province_name',
         'sold_at',
     ],
 

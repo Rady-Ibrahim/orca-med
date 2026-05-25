@@ -1,5 +1,5 @@
 @php
-    $role = auth()->user()?->role?->value;
+    $user = auth()->user();
     $current = request()->route()?->getName();
 
     $adminNav = [
@@ -10,12 +10,11 @@
         ['route' => 'products.index',   'label' => 'المنتجات',         'icon' => 'package'],
         ['route' => 'sales.index',      'label' => 'المبيعات',         'icon' => 'chart-bar'],
         ['route' => 'reports.index',    'label' => 'التقارير',         'icon' => 'document'],
-        ['route' => 'search.index',     'label' => 'بحث متقدم',        'icon' => 'search'],
         ['route' => 'imports.index',    'label' => 'استيراد Excel',    'icon' => 'upload'],
         ['route' => 'users.index',      'label' => 'المستخدمون',       'icon' => 'users'],
         ['route' => 'companies.index',  'label' => 'الشركات',          'icon' => 'office'],
-        ['route' => 'warehouses.index', 'label' => 'المخازن',          'icon' => 'warehouse'],
-        ['route' => 'access-requests.index', 'label' => 'طلبات الوصول', 'icon' => 'lock'],
+        ['route' => 'activation-codes.index', 'label' => 'أكواد التفعيل',   'icon' => 'key'],
+        ['route' => 'activation.index', 'label' => 'تفعيل التحليلات',   'icon' => 'lock'],
     ];
 
     $companyNav = [
@@ -23,20 +22,18 @@
         ['route' => 'products.index',          'label' => 'المنتجات',          'icon' => 'package'],
         ['route' => 'sales.index',             'label' => 'المبيعات',          'icon' => 'chart-bar'],
         ['route' => 'reports.index',           'label' => 'التقارير',          'icon' => 'document'],
-        ['route' => 'search.index',            'label' => 'بحث متقدم',         'icon' => 'search'],
         ['route' => 'analytics.products',      'label' => 'تحليلات المبيعات', 'icon' => 'trending'],
-        ['route' => 'access-requests.index',   'label' => 'طلبات الوصول',      'icon' => 'lock'],
+        ['route' => 'activation.index',        'label' => 'تفعيل التحليلات',   'icon' => 'key'],
     ];
 
     $warehouseNav = [
-        ['route' => 'dashboard',     'label' => 'لوحة القيادة',    'icon' => 'home'],
-        ['route' => 'imports.index', 'label' => 'استيراد البيانات', 'icon' => 'upload'],
+        ['route' => 'dashboard', 'label' => 'لوحة القيادة', 'icon' => 'home'],
     ];
 
-    $navItems = match($role) {
-        'admin'     => $adminNav,
-        'company'   => $companyNav,
-        'warehouse' => $warehouseNav,
+    $navItems = match(true) {
+        $user?->isAdmin()     => $adminNav,
+        $user?->isCompanyUser() => $companyNav,
+        $user?->isWarehouseUser() => $warehouseNav,
         default     => [],
     };
 @endphp
@@ -86,6 +83,8 @@
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
         @elseif($item['icon'] === 'trending')
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+        @elseif($item['icon'] === 'key')
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
         @else
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>
         @endif

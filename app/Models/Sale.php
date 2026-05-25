@@ -17,6 +17,8 @@ class Sale extends Model
         'quantity',
         'sold_at',
         'import_hash',
+        'unit_price',
+        'discount',
     ];
 
     protected function casts(): array
@@ -24,6 +26,8 @@ class Sale extends Model
         return [
             'sold_at' => 'date',
             'quantity' => 'integer',
+            'unit_price' => 'decimal:2',
+            'discount' => 'decimal:2',
         ];
     }
 

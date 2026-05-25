@@ -24,6 +24,7 @@ class User extends Authenticatable
         'company_id',
         'warehouse_id',
         'sensitive_unlock_expires_at',
+        'analytics_unlock_expires_at',
     ];
 
     protected $hidden = [
@@ -38,6 +39,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => UserRole::class,
             'sensitive_unlock_expires_at' => 'datetime',
+            'analytics_unlock_expires_at' => 'datetime',
         ];
     }
 
@@ -69,5 +71,10 @@ class User extends Authenticatable
     public function isWarehouseUser(): bool
     {
         return $this->role?->isWarehouse() ?? false;
+    }
+
+    public function hasAnalyticsAccess(): bool
+    {
+        return $this->analytics_unlock_expires_at && $this->analytics_unlock_expires_at->isFuture();
     }
 }

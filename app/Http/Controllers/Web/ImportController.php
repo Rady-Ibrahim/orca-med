@@ -3,11 +3,104 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessSaleImportJob;
+use App\Models\UploadBatch;
+use App\Services\CompanyService;
+use App\Services\ProvinceService;
+use App\Services\SaleImportService;
+use App\Services\SupplierService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ImportController extends Controller
 {
-    public function index() { return view('imports.index'); }
-    public function store() { return redirect()->route('imports.index'); }
-    public function show($batch) { return view('imports.show', ['batch' => $batch]); }
-    public function template() { abort(501, 'قريباً'); }
+    public function __construct(
+        private SaleImportService $importService,
+        private CompanyService $companyService,
+        private SupplierService $supplierService,
+        private ProvinceService $provinceService,
+    ) {}
+
+    public function index(): View
+    {
+        $batches = UploadBatch::with(['company', 'supplier', 'province', 'uploader'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        $companies = $this->companyService->list(['per_page' => 200])->getCollection();
+        $suppliers = $this->supplierService->list(['per_page' => 200])->getCollection();
+        $provinces = $this->provinceService->list(['per_page' => 200])->getCollection();
+
+        return view('imports.index', compact('batches', 'companies', 'suppliers', 'provinces'));
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
+            'company_id' => ['required', 'exists:companies,id'],
+            'supplier_id' => ['required', 'exists:suppliers,id'],
+            'province_id' => ['required', 'exists:provinces,id'],
+        ]);
+
+        $user = auth()->user();
+
+        if (! $user->isAdmin()) {
+            return redirect()->route('imports.index')
+                ->with('error', 'فقط الأدمن يمكنه رفع الملفات.');
+        }
+
+        $batch = $this->importService->createQueuedBatch(
+            $request->file('file'),
+            $user,
+            $request->integer('company_id'),
+            $request->integer('supplier_id'),
+            $request->integer('province_id')
+        );
+
+        ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
+
+        return redirect()->route('imports.index')->with('status', 'تم رفع الملف وبدء المعالجة.');
+    }
+
+    public function show(UploadBatch $batch): View
+    {
+        $batch->load(['company', 'supplier', 'province', 'uploader', 'errors']);
+
+        return view('imports.show', compact('batch'));
+    }
+
+    public function template(): StreamedResponse
+    {
+        $headers = config('sale_import.columns');
+        $columns = [];
+        foreach ($headers as $canonical => $aliases) {
+            $columns[] = $aliases[0] ?? $canonical;
+        }
+
+        $fileName = 'sales_import_template.csv';
+
+        return response()->streamDownload(function () use ($columns) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, $columns);
+            fclose($file);
+        }, $fileName, ['Content-Type' => 'text/csv']);
+    }
+
+    public function downloadErrors(UploadBatch $batch): StreamedResponse
+    {
+        if (! $batch->error_report_path) {
+            abort(404, 'لا يوجد تقرير أخطاء لهذه الدفعة.');
+        }
+
+        $path = Storage::disk('local')->path($batch->error_report_path);
+
+        if (! file_exists($path)) {
+            abort(404, 'ملف التقرير غير موجود.');
+        }
+
+        return response()->download($path, "batch-{$batch->id}-errors.csv");
+    }
 }

@@ -11,6 +11,9 @@ class UploadBatch extends Model
 {
     protected $fillable = [
         'uploaded_by',
+        'company_id',
+        'supplier_id',
+        'province_id',
         'warehouse_id',
         'original_filename',
         'stored_path',
@@ -37,6 +40,21 @@ class UploadBatch extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    public function province(): BelongsTo
+    {
+        return $this->belongsTo(Province::class);
     }
 
     public function warehouse(): BelongsTo

@@ -22,6 +22,7 @@ class DashboardService
     {
         $from = $filters['from'] ?? null;
         $to = $filters['to'] ?? null;
+        $hasAnalyticsAccess = $user->hasAnalyticsAccess();
 
         $salesQuery = Sale::query();
         $this->scopeSales($salesQuery, $user);
@@ -36,6 +37,11 @@ class DashboardService
         $productsQuery = Product::query();
         $this->scopeProducts($productsQuery, $user);
 
+        // Calculate total revenue using the financial formula
+        $totalRevenue = (clone $salesQuery)->get()->sum(function ($sale) {
+            return $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
+        });
+
         if ($user->isWarehouseUser() && $user->warehouse_id) {
             $wid = $user->warehouse_id;
 
@@ -48,20 +54,45 @@ class DashboardService
                     'products' => Product::whereIn('id', $productIds)->count(),
                     'sales_count' => (clone $salesQuery)->count(),
                     'quantity_sold' => (int) (clone $salesQuery)->sum('quantity'),
+                    'total_revenue' => $hasAnalyticsAccess ? round($totalRevenue, 2) : null,
                     'provinces' => (clone $salesQuery)->distinct('province_id')->count('province_id'),
                     'suppliers' => (clone $salesQuery)->distinct('supplier_id')->count('supplier_id'),
                 ],
-                'charts' => [
+                'charts' => $hasAnalyticsAccess ? [
                     'sales_by_province' => $this->salesByProvince($user, $from, $to),
                     'top_suppliers' => $this->topSuppliers($user, $from, $to),
                     'top_products' => $this->topProducts($user, $from, $to, 10),
                     'bottom_products' => $this->bottomProducts($user, $from, $to, 10),
                     'sales_over_time' => $this->salesOverTime($user, $from, $to),
                     'products_by_company' => $this->productsByCompanyForWarehouse($wid),
-                ],
+                ] : [],
             ];
         }
 
+        // For company users: return general stats without analytics access, full stats with access
+        if ($user->isCompanyUser()) {
+            return [
+                'totals' => [
+                    'provinces' => (clone $salesQuery)->distinct('province_id')->count('province_id'),
+                    'suppliers' => (clone $salesQuery)->distinct('supplier_id')->count('supplier_id'),
+                    'pharmacies' => (clone $salesQuery)->distinct('pharmacy_id')->count('pharmacy_id'),
+                    'products' => (clone $productsQuery)->count(),
+                    'sales_count' => (clone $salesQuery)->count(),
+                    'quantity_sold' => (int) (clone $salesQuery)->sum('quantity'),
+                    'total_revenue' => $hasAnalyticsAccess ? round($totalRevenue, 2) : null,
+                ],
+                'charts' => $hasAnalyticsAccess ? [
+                    'sales_by_province' => $this->salesByProvince($user, $from, $to),
+                    'top_suppliers' => $this->topSuppliers($user, $from, $to),
+                    'top_products' => $this->topProducts($user, $from, $to, 10),
+                    'bottom_products' => $this->bottomProducts($user, $from, $to, 10),
+                    'sales_over_time' => $this->salesOverTime($user, $from, $to),
+                    'products_by_company' => $this->productsByCompany($user),
+                ] : [],
+            ];
+        }
+
+        // Admin: always sees full stats + stats by company
         return [
             'totals' => [
                 'provinces' => Province::count(),
@@ -70,6 +101,7 @@ class DashboardService
                 'products' => (clone $productsQuery)->count(),
                 'sales_count' => (clone $salesQuery)->count(),
                 'quantity_sold' => (int) (clone $salesQuery)->sum('quantity'),
+                'total_revenue' => round($totalRevenue, 2),
             ],
             'charts' => [
                 'sales_by_province' => $this->salesByProvince($user, $from, $to),
@@ -79,6 +111,7 @@ class DashboardService
                 'sales_over_time' => $this->salesOverTime($user, $from, $to),
                 'products_by_company' => $this->productsByCompany($user),
             ],
+            'stats_by_company' => $this->getStatsByCompany($from, $to),
         ];
     }
 
@@ -230,5 +263,54 @@ class DashboardService
         if ($to) {
             $query->whereDate('sales.sold_at', '<=', $to);
         }
+    }
+
+    /**
+     * @return list<array{company_id: int, company_name: string, sales_count: int, quantity_sold: int, total_revenue: float}>
+     */
+    private function getStatsByCompany(?string $from, ?string $to): array
+    {
+        $query = Sale::query()
+            ->join('upload_batches', 'sales.upload_batch_id', '=', 'upload_batches.id')
+            ->join('companies', 'upload_batches.company_id', '=', 'companies.id')
+            ->select(
+                'companies.id as company_id',
+                'companies.name as company_name',
+                DB::raw('COUNT(*) as sales_count'),
+                DB::raw('SUM(sales.quantity) as quantity_sold')
+            )
+            ->groupBy('companies.id', 'companies.name')
+            ->orderByDesc('quantity_sold');
+
+        $this->applyDateFilter($query, $from, $to);
+
+        $results = $query->get();
+
+        return $results->map(function ($row) use ($from, $to) {
+            // Calculate revenue for this company
+            $companySales = Sale::query()
+                ->whereHas('uploadBatch', function ($q) use ($row) {
+                    $q->where('company_id', $row->company_id);
+                });
+
+            if ($from) {
+                $companySales->whereDate('sold_at', '>=', $from);
+            }
+            if ($to) {
+                $companySales->whereDate('sold_at', '<=', $to);
+            }
+
+            $totalRevenue = $companySales->get()->sum(function ($sale) {
+                return $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
+            });
+
+            return [
+                'company_id' => $row->company_id,
+                'company_name' => $row->company_name,
+                'sales_count' => (int) $row->sales_count,
+                'quantity_sold' => (int) $row->quantity_sold,
+                'total_revenue' => round($totalRevenue, 2),
+            ];
+        })->all();
     }
 }

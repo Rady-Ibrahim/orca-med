@@ -23,26 +23,25 @@ class SaleImportController extends Controller
                 'mimes:'.implode(',', config('sale_import.allowed_extensions')),
                 'max:'.((int) config('sale_import.max_file_size_mb') * 1024),
             ],
+            'company_id' => ['required', 'exists:companies,id'],
+            'supplier_id' => ['required', 'exists:suppliers,id'],
+            'province_id' => ['required', 'exists:provinces,id'],
             'warehouse_id' => ['nullable', 'exists:warehouses,id'],
         ]);
 
         $user = $request->user();
-        $warehouseId = $user->isWarehouseUser()
-            ? $user->warehouse_id
-            : ($request->filled('warehouse_id') ? $request->integer('warehouse_id') : null);
 
-        if ($user->isAdmin() && ! $warehouseId) {
-            return response()->json(['message' => 'يجب تحديد المخزن (warehouse_id) عند الرفع كمدير.'], 422);
-        }
-
-        if ($user->isWarehouseUser() && ! $warehouseId) {
-            return response()->json(['message' => 'حساب المخزن غير مرتبط بمخزن.'], 422);
+        if (! $user->isAdmin()) {
+            return response()->json(['message' => 'فقط الأدمن يمكنه رفع الملفات.'], 403);
         }
 
         $batch = $this->saleImportService->createQueuedBatch(
             $request->file('file'),
             $user,
-            $warehouseId
+            $request->integer('company_id'),
+            $request->integer('supplier_id'),
+            $request->integer('province_id'),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
         );
 
         ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
