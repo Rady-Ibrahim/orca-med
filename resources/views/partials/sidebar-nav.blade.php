@@ -22,7 +22,6 @@
         ['route' => 'products.index',          'label' => 'المنتجات',          'icon' => 'package'],
         ['route' => 'sales.index',             'label' => 'المبيعات',          'icon' => 'chart-bar'],
         ['route' => 'reports.index',           'label' => 'التقارير',          'icon' => 'document'],
-        ['route' => 'analytics.products',      'label' => 'تحليلات المبيعات', 'icon' => 'trending'],
         ['route' => 'activation.index',        'label' => 'تفعيل التحليلات',   'icon' => 'key'],
     ];
 

@@ -270,19 +270,39 @@ class SaleImportService
             if ($productName !== '' && ! $productId) {
                 $productId = $productsCache[$productName] ?? null;
                 if (! $productId) {
-                    $product = Product::firstOrCreate(
-                        [
-                            'company_id' => $batch->company_id,
-                            'name' => $productName,
-                        ],
-                        [
-                            'code' => strtoupper(substr(md5($productName), 0, 8)),
-                            'description' => null,
-                        ]
-                    );
-                    $productId = $product->id;
-                    $productsCache[$productName] = $productId;
-                    $productsByName[$productName] = $productId;
+                    // Check for similar products (similarity search)
+                    $similarProduct = $this->findSimilarProduct($productName, $batch->company_id);
+                    
+                    if ($similarProduct) {
+                        // Log similarity warning
+                        \Log::warning('Similar product detected', [
+                            'batch_id' => $batch->id,
+                            'row' => $rowNumber,
+                            'new_name' => $productName,
+                            'similar_id' => $similarProduct->id,
+                            'similar_name' => $similarProduct->name,
+                            'similarity' => $similarProduct['similarity'] ?? 0,
+                        ]);
+                        
+                        // Use the similar product instead of creating new one
+                        $productId = $similarProduct->id;
+                        $productsCache[$productName] = $productId;
+                        $productsByName[$productName] = $productId;
+                    } else {
+                        $product = Product::firstOrCreate(
+                            [
+                                'company_id' => $batch->company_id,
+                                'name' => $productName,
+                            ],
+                            [
+                                'code' => strtoupper(substr(md5($productName), 0, 8)),
+                                'description' => null,
+                            ]
+                        );
+                        $productId = $product->id;
+                        $productsCache[$productName] = $productId;
+                        $productsByName[$productName] = $productId;
+                    }
                 }
             }
 
@@ -485,5 +505,70 @@ class SaleImportService
     {
         // Duplicate detection: same product + same pharmacy + same date
         return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}");
+    }
+
+    /**
+     * Find similar product by name using Levenshtein distance
+     * Returns product object with similarity score if found, null otherwise
+     */
+    private function findSimilarProduct(string $productName, int $companyId): ?Product
+    {
+        $threshold = 0.85; // 85% similarity threshold
+        $existingProducts = Product::where('company_id', $companyId)
+            ->get()
+            ->map(function ($product) use ($productName) {
+                $similarity = $this->calculateSimilarity($productName, $product->name);
+                return [
+                    'product' => $product,
+                    'similarity' => $similarity,
+                ];
+            })
+            ->filter(fn ($item) => $item['similarity'] >= $threshold)
+            ->sortByDesc('similarity')
+            ->first();
+
+        return $existingProducts ? $existingProducts['product'] : null;
+    }
+
+    /**
+     * Calculate similarity between two strings using similar_text
+     * Returns value between 0 and 1
+     */
+    private function calculateSimilarity(string $str1, string $str2): float
+    {
+        // Normalize strings: remove extra spaces, convert to lowercase for comparison
+        $str1 = $this->normalizeForComparison($str1);
+        $str2 = $this->normalizeForComparison($str2);
+
+        if ($str1 === $str2) {
+            return 1.0;
+        }
+
+        if (empty($str1) || empty($str2)) {
+            return 0.0;
+        }
+
+        similar_text($str1, $str2, $percent);
+        return $percent / 100;
+    }
+
+    /**
+     * Normalize string for comparison
+     * Removes extra spaces, standardizes Arabic characters
+     */
+    private function normalizeForComparison(string $str): string
+    {
+        // Remove extra spaces
+        $str = preg_replace('/\s+/', ' ', trim($str));
+        
+        // Standardize Arabic characters (أ -> ا, ة -> ه)
+        $str = str_replace(['أ', 'إ', 'آ'], 'ا', $str);
+        $str = str_replace('ة', 'ه', $str);
+        
+        // Remove common variations in concentration notation
+        $str = preg_replace('/\s*(مجم|مل|كبسولة|قرص|نقط|أمبول)\s*/i', '', $str);
+        $str = preg_replace('/\s*\d+\s*(\/|÷)\s*\d+\s*/', '', $str); // Remove fractions like 400/5
+        
+        return $str;
     }
 }

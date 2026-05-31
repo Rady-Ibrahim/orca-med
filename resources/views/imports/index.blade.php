@@ -127,9 +127,18 @@
                             </td>
                             <td class="px-4 py-3 text-sm text-slate-700">{{ $batch->created_at->format('Y-m-d H:i') }}</td>
                             <td class="px-4 py-3">
-                                <a href="{{ route('imports.show', $batch) }}" class="text-blue-600 hover:text-blue-700 text-sm">
-                                    عرض التفاصيل
-                                </a>
+                                <div class="flex items-center gap-2">
+                                    <a href="{{ route('imports.show', $batch) }}" class="text-blue-600 hover:text-blue-700 text-sm">
+                                        عرض التفاصيل
+                                    </a>
+                                    <form action="{{ route('imports.destroy', $batch) }}" method="POST" onsubmit="return confirm('هل أنت متأكد من حذف هذه الرفعة؟ سيتم حذف جميع البيانات المرتبطة بها من قاعدة البيانات.')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="text-red-600 hover:text-red-700 text-sm">
+                                            حذف
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     @empty

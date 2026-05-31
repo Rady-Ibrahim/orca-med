@@ -103,4 +103,29 @@ class ImportController extends Controller
 
         return response()->download($path, "batch-{$batch->id}-errors.csv");
     }
+
+    public function destroy(UploadBatch $batch)
+    {
+        $user = auth()->user();
+
+        if (! $user->isAdmin()) {
+            return redirect()->route('imports.index')
+                ->with('error', 'فقط الأدمن يمكنه حذف الرفوعات.');
+        }
+
+        // Delete the uploaded file from storage
+        if ($batch->stored_path) {
+            Storage::disk('local')->delete($batch->stored_path);
+        }
+
+        // Delete error report if exists
+        if ($batch->error_report_path) {
+            Storage::disk('local')->delete($batch->error_report_path);
+        }
+
+        // Delete the batch (cascade will delete sales and errors)
+        $batch->delete();
+
+        return redirect()->route('imports.index')->with('status', 'تم حذف الرفعة وكل البيانات المرتبطة بها بنجاح.');
+    }
 }

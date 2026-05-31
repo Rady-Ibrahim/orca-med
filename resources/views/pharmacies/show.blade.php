@@ -69,7 +69,7 @@
     {{-- Sales Table --}}
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div class="p-6 border-b border-slate-200">
-            <h3 class="text-lg font-semibold text-slate-800">سجل المبيعات</h3>
+            <h3 class="text-lg font-semibold text-slate-800">إجمالي المسحوبات حسب المنتج</h3>
         </div>
 
         <div class="overflow-x-auto">
@@ -77,29 +77,22 @@
                 <thead class="bg-slate-50">
                     <tr>
                         <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">المنتج</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">الكمية</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">السعر</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">الخصم</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">الإجمالى</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">التاريخ</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">إجمالي الكمية</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">عدد العمليات</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-slate-500">الإجمالي المالي</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200">
-                    @forelse($pharmacy->sales as $sale)
-                        @php
-                            $total = $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
-                        @endphp
+                    @forelse($salesByProduct as $productSale)
                         <tr class="hover:bg-slate-50">
-                            <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $sale->product?->name ?? '-' }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-700">{{ $sale->quantity }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-700">{{ $sale->unit_price ?? '-' }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-700">{{ $sale->discount ?? '-' }}%</td>
-                            <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ number_format($total, 2) }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-700">{{ $sale->sold_at?->format('Y-m-d') ?? '-' }}</td>
+                            <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $productSale->name }}</td>
+                            <td class="px-4 py-3 text-sm font-bold text-emerald-600">{{ $productSale->total_quantity }} عبوة</td>
+                            <td class="px-4 py-3 text-sm text-slate-700">{{ $productSale->transaction_count }} عملية</td>
+                            <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ number_format($productSale->total_revenue, 2) }} ج.م</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-4 py-8 text-center text-slate-500">
+                            <td colspan="4" class="px-4 py-8 text-center text-slate-500">
                                 لا توجد مبيعات لهذه الصيدلية
                             </td>
                         </tr>

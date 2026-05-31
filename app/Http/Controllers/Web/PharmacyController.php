@@ -79,6 +79,21 @@ class PharmacyController extends Controller
     {
         $pharmacy->load(['supplier', 'province', 'warehouse', 'sales.product']);
 
+        // Aggregate sales by product to show total quantities
+        $salesByProduct = \App\Models\Sale::where('pharmacy_id', $pharmacy->id)
+            ->join('products', 'sales.product_id', '=', 'products.id')
+            ->select(
+                'products.id',
+                'products.name',
+                'products.code',
+                \Illuminate\Support\Facades\DB::raw('SUM(sales.quantity) as total_quantity'),
+                \Illuminate\Support\Facades\DB::raw('COUNT(sales.id) as transaction_count'),
+                \Illuminate\Support\Facades\DB::raw('SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)) as total_revenue')
+            )
+            ->groupBy('products.id', 'products.name', 'products.code')
+            ->orderByDesc('total_quantity')
+            ->get();
+
         $user = auth()->user();
 
         // Privacy check: if company user without approved access, mask sensitive data
@@ -99,6 +114,6 @@ class PharmacyController extends Controller
             }
         }
 
-        return view('pharmacies.show', compact('pharmacy', 'maskSensitiveData'));
+        return view('pharmacies.show', compact('pharmacy', 'maskSensitiveData', 'salesByProduct'));
     }
 }

@@ -35,6 +35,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/imports/template',     [\App\Http\Controllers\Web\ImportController::class, 'template'])->name('imports.template');
         Route::get('/imports/{batch}',      [\App\Http\Controllers\Web\ImportController::class, 'show'])->name('imports.show');
         Route::get('/imports/{batch}/errors', [\App\Http\Controllers\Web\ImportController::class, 'downloadErrors'])->name('imports.download-errors');
+        Route::delete('/imports/{batch}',   [\App\Http\Controllers\Web\ImportController::class, 'destroy'])->name('imports.destroy');
         Route::get('/activation-codes',     [\App\Http\Controllers\Web\ActivationCodeController::class, 'index'])->name('activation-codes.index');
         Route::post('/activation-codes',    [\App\Http\Controllers\Web\ActivationCodeController::class, 'store'])->name('activation-codes.store');
         Route::delete('/activation-codes/{code}', [\App\Http\Controllers\Web\ActivationCodeController::class, 'destroy'])->name('activation-codes.destroy');

@@ -25,7 +25,8 @@
 
         {{-- Logo --}}
         <div class="flex items-center gap-3 px-5 py-5 border-b border-blue-800">
-            <div class="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center font-bold text-lg shrink-0">O</div>
+            <img src="{{ asset('images/orca-med-logo.jpeg') }}" alt="Orca Med Logo" class="w-12 h-12 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+            <div class="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center font-bold text-lg shrink-0 hidden">O</div>
             <div class="leading-tight">
                 <div class="font-bold text-base">Orca Med</div>
                 <div class="text-xs text-blue-300">توزيع الأدوية</div>
