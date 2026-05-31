@@ -10,6 +10,7 @@ class Product extends Model
 {
     protected $fillable = [
         'company_id',
+        'upload_batch_id',
         'name',
         'code',
         'price',
@@ -25,6 +26,11 @@ class Product extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function uploadBatch(): BelongsTo
+    {
+        return $this->belongsTo(UploadBatch::class);
     }
 
     public function sales(): HasMany

@@ -295,6 +295,7 @@ class SaleImportService
                                 'name' => $productName,
                             ],
                             [
+                                'upload_batch_id' => $batch->id,
                                 'code' => strtoupper(substr(md5($productName), 0, 8)),
                                 'description' => null,
                             ]
@@ -322,12 +323,9 @@ class SaleImportService
                 ];
             }
 
+            // Use today's date if sold_at is not provided
             if (! $soldAt) {
-                $errors[] = [
-                    'type' => self::ERROR_VALIDATION,
-                    'column' => 'sold_at',
-                    'message' => 'تاريخ البيع غير صالح.',
-                ];
+                $soldAt = now()->format('Y-m-d');
             }
 
             $productId = $productsByName[$productName] ?? null;
@@ -343,7 +341,12 @@ class SaleImportService
                             'province_id' => $batch->province_id,
                             'name' => $outletName,
                         ],
-                        ['phone' => null, 'address' => null, 'warehouse_id' => null]
+                        [
+                            'upload_batch_id' => $batch->id,
+                            'phone' => null,
+                            'address' => null,
+                            'warehouse_id' => null
+                        ]
                     );
                     $pharmacyId = $pharmacy->id;
                     $pharmaciesCache[$pharmacyKey] = $pharmacyId;

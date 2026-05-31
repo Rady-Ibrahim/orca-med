@@ -12,6 +12,7 @@ class Pharmacy extends Model
         'supplier_id',
         'warehouse_id',
         'province_id',
+        'upload_batch_id',
         'name',
         'license_number',
         'phone',
@@ -31,6 +32,11 @@ class Pharmacy extends Model
     public function province(): BelongsTo
     {
         return $this->belongsTo(Province::class);
+    }
+
+    public function uploadBatch(): BelongsTo
+    {
+        return $this->belongsTo(UploadBatch::class);
     }
 
     public function sales(): HasMany

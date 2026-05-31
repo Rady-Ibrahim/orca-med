@@ -20,7 +20,6 @@ return [
         'outlet_name',
         'product_name',
         'quantity',
-        'sold_at',
     ],
 
     'chunk_size' => 500,

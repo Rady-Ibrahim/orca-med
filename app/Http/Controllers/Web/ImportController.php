@@ -113,6 +113,28 @@ class ImportController extends Controller
                 ->with('error', 'فقط الأدمن يمكنه حذف الرفوعات.');
         }
 
+        // Delete products created by this batch (only if not used in other batches' sales)
+        $orphanedProductIds = \App\Models\Product::where('upload_batch_id', $batch->id)
+            ->whereDoesntHave('sales', function ($query) use ($batch) {
+                $query->where('upload_batch_id', '!=', $batch->id);
+            })
+            ->pluck('id');
+        
+        if ($orphanedProductIds->isNotEmpty()) {
+            \App\Models\Product::whereIn('id', $orphanedProductIds)->delete();
+        }
+
+        // Delete pharmacies created by this batch (only if not used in other batches' sales)
+        $orphanedPharmacyIds = \App\Models\Pharmacy::where('upload_batch_id', $batch->id)
+            ->whereDoesntHave('sales', function ($query) use ($batch) {
+                $query->where('upload_batch_id', '!=', $batch->id);
+            })
+            ->pluck('id');
+        
+        if ($orphanedPharmacyIds->isNotEmpty()) {
+            \App\Models\Pharmacy::whereIn('id', $orphanedPharmacyIds)->delete();
+        }
+
         // Delete the uploaded file from storage
         if ($batch->stored_path) {
             Storage::disk('local')->delete($batch->stored_path);
