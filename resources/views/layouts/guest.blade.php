@@ -11,7 +11,14 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @include('partials.orca-styles')
     @stack('head')
-    <style>body { font-family: 'Cairo', sans-serif; }</style>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            font-family: 'Cairo', sans-serif;
+        }
+    </style>
 </head>
 <body class="orca-ui">
     @yield('content')
