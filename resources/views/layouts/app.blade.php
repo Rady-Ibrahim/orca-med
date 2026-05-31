@@ -25,7 +25,7 @@
 
         {{-- Logo --}}
         <div class="flex items-center justify-center px-5 py-5 border-b border-blue-800">
-            <img src="/images/orca-med-logo.jpeg" alt="Orca Med Logo" class="w-full h-auto object-contain" onerror="this.style.display='none';">
+            <img src="public/images/orca-med-logo.jpeg" alt="Orca Med Logo" class="w-full h-auto object-contain" onerror="this.style.display='none';">
         </div>
 
         {{-- Nav --}}

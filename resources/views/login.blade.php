@@ -69,7 +69,7 @@
 
     {{-- الجانب الأيسر - الصورة --}}
     <div style="width: 50%; display: flex; align-items: center; justify-content: center; background-color: #ffffff; padding: 0;">
-        <img src="/images/orca-med-.jpeg" alt="Orca Med" style="max-width: 100%; max-height: 100vh; width: auto; height: auto; object-fit: contain;">
+        <img src="{{ asset('public/images/orca-med-.jpeg') }}" alt="Orca Med" style="max-width: 100%; max-height: 100vh; width: auto; height: auto; object-fit: contain;">
     </div>
 
 </div>
