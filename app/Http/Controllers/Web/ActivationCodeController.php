@@ -47,4 +47,11 @@ class ActivationCodeController extends Controller
         $code->delete();
         return back()->with('status', 'تم حذف الكود');
     }
+
+    public function toggle(ActivationCode $code)
+    {
+        $code->update(['is_active' => !$code->is_active]);
+        $status = $code->is_active ? 'تفعيل' : 'إيقاف';
+        return back()->with('status', "تم $status الكود");
+    }
 }

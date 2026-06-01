@@ -17,6 +17,8 @@
     </div>
 @endif
 
+@if(! (auth()->user()->isCompanyUser() && !auth()->user()->hasAnalyticsAccess()))
+
 <div class="space-y-6">
     {{-- Filters Form --}}
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -135,4 +137,6 @@
         @endif
     </div>
 </div>
+
+@endif
 @endsection

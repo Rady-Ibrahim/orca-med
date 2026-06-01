@@ -31,12 +31,8 @@ class CompanyController extends Controller
             'contact_email'          => ['nullable', 'email', 'max:255'],
             'contact_phone'          => ['nullable', 'string', 'max:30'],
             'is_active'              => ['boolean'],
-            'sensitive_view_password'=> ['nullable', 'string', 'min:6'],
         ]);
         $data['is_active'] = $request->boolean('is_active', true);
-        if (empty($data['sensitive_view_password'])) {
-            unset($data['sensitive_view_password']);
-        }
         $this->service->create($data);
         return redirect()->route('companies.index')->with('status', 'تمت إضافة الشركة بنجاح.');
     }
@@ -53,12 +49,8 @@ class CompanyController extends Controller
             'contact_email'          => ['nullable', 'email', 'max:255'],
             'contact_phone'          => ['nullable', 'string', 'max:30'],
             'is_active'              => ['boolean'],
-            'sensitive_view_password'=> ['nullable', 'string', 'min:6'],
         ]);
         $data['is_active'] = $request->boolean('is_active');
-        if (empty($data['sensitive_view_password'])) {
-            unset($data['sensitive_view_password']);
-        }
         $this->service->update($company, $data);
         return redirect()->route('companies.index')->with('status', 'تم تحديث بيانات الشركة بنجاح.');
     }

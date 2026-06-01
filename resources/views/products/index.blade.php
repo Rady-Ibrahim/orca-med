@@ -3,6 +3,20 @@
 @section('content')
 <x-page-header title="إدارة المنتجات" subtitle="قائمة المنتجات المسجلة" />
 
+@if(auth()->user()->isCompanyUser() && !auth()->user()->hasAnalyticsAccess())
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-lg font-semibold text-amber-800 mb-2">تفعيل التحليلات</h3>
+                <p class="text-amber-700 text-sm">يجب تفعيل الحساب لعرض قائمة المنتجات</p>
+            </div>
+            <a href="{{ route('activation.index') }}" class="bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium">
+                تفعيل الآن
+            </a>
+        </div>
+    </div>
+@else
+
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
     <div class="p-6 border-b border-slate-200 flex justify-between items-center">
         <h3 class="text-lg font-semibold text-slate-800">المنتجات</h3>
@@ -52,4 +66,6 @@
         </div>
     @endif
 </div>
+
+@endif
 @endsection

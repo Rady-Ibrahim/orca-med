@@ -20,37 +20,39 @@ class SalesController extends Controller
 
     public function index(Request $request): View
     {
-        $query = Sale::with(['pharmacy', 'product', 'supplier', 'province', 'uploadBatch']);
-
-        // Role-based filtering
         $user = auth()->user();
-        if ($user->isCompanyUser()) {
-            $query->whereHas('uploadBatch', function ($q) use ($user) {
-                $q->where('company_id', $user->company_id);
-            });
-        }
+        if ($user->isCompanyUser() && ! $user->hasAnalyticsAccess()) {
+            $sales = Sale::query()->whereRaw('1 = 0')->paginate(50);
+        } else {
+            $query = Sale::with(['pharmacy', 'product', 'supplier', 'province', 'uploadBatch']);
 
-        // Apply filters
-        if ($request->filled('pharmacy_id')) {
-            $query->where('pharmacy_id', $request->integer('pharmacy_id'));
-        }
-        if ($request->filled('product_id')) {
-            $query->where('product_id', $request->integer('product_id'));
-        }
-        if ($request->filled('supplier_id')) {
-            $query->where('supplier_id', $request->integer('supplier_id'));
-        }
-        if ($request->filled('province_id')) {
-            $query->where('province_id', $request->integer('province_id'));
-        }
-        if ($request->filled('date_from')) {
-            $query->where('sold_at', '>=', $request->date('date_from'));
-        }
-        if ($request->filled('date_to')) {
-            $query->where('sold_at', '<=', $request->date('date_to'));
-        }
+            if ($user->isCompanyUser()) {
+                $query->whereHas('uploadBatch', function ($q) use ($user) {
+                    $q->where('company_id', $user->company_id);
+                });
+            }
 
-        $sales = $query->orderBy('sold_at', 'desc')->paginate(50);
+            if ($request->filled('pharmacy_id')) {
+                $query->where('pharmacy_id', $request->integer('pharmacy_id'));
+            }
+            if ($request->filled('product_id')) {
+                $query->where('product_id', $request->integer('product_id'));
+            }
+            if ($request->filled('supplier_id')) {
+                $query->where('supplier_id', $request->integer('supplier_id'));
+            }
+            if ($request->filled('province_id')) {
+                $query->where('province_id', $request->integer('province_id'));
+            }
+            if ($request->filled('date_from')) {
+                $query->where('sold_at', '>=', $request->date('date_from'));
+            }
+            if ($request->filled('date_to')) {
+                $query->where('sold_at', '<=', $request->date('date_to'));
+            }
+
+            $sales = $query->orderBy('sold_at', 'desc')->paginate(50);
+        }
 
         // Load filter options
         $companies = $user->isAdmin() 

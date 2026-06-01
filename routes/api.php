@@ -12,7 +12,6 @@ use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SaleController;
 use App\Http\Controllers\Api\SaleImportController;
-use App\Http\Controllers\Api\SensitiveUnlockController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\UploadBatchController;
 use App\Http\Controllers\Api\UserController;
@@ -27,8 +26,6 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
-
-        Route::post('sensitive-unlock', [SensitiveUnlockController::class, 'store']);
 
         Route::prefix('company')->group(function () {
             Route::get('analytics/products', [CompanyAnalyticsController::class, 'products']);

@@ -39,6 +39,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/activation-codes',     [\App\Http\Controllers\Web\ActivationCodeController::class, 'index'])->name('activation-codes.index');
         Route::post('/activation-codes',    [\App\Http\Controllers\Web\ActivationCodeController::class, 'store'])->name('activation-codes.store');
         Route::delete('/activation-codes/{code}', [\App\Http\Controllers\Web\ActivationCodeController::class, 'destroy'])->name('activation-codes.destroy');
+        Route::post('/activation-codes/{code}/toggle', [\App\Http\Controllers\Web\ActivationCodeController::class, 'toggle'])->name('activation-codes.toggle');
     });
 
     // ── Admin + Company ───────────────────────────────────────
@@ -57,7 +58,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/analytics/products',                    [\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'products'])->name('analytics.products');
         Route::get('/analytics/products/{product}/provinces',[\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'provinces'])->name('analytics.provinces');
         Route::get('/analytics/products/{product}/pharmacies',[\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'pharmacies'])->name('analytics.pharmacies');
-        Route::post('/sensitive-unlock',                     [\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'sensitiveUnlock'])->name('sensitive-unlock');
         Route::post('/pharmacy-access-requests',             [\App\Http\Controllers\Web\PharmacyAccessRequestController::class, 'store'])->name('pharmacy-access-requests.store');
     });
 

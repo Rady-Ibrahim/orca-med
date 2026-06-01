@@ -20,10 +20,17 @@ class ProductController extends Controller
     public function index(Request $request): View
     {
         $user = auth()->user();
-        $products = $this->productService->list($user, $request->only(['search', 'company_id', 'per_page']));
-        $companies = $user->isAdmin() 
-            ? $this->companyService->list(['per_page' => 200])->getCollection()
-            : collect([]);
+
+        if ($user->isCompanyUser() && ! $user->hasAnalyticsAccess()) {
+            $perPage = $request->input('per_page', 15);
+            $products = Product::query()->whereRaw('1 = 0')->paginate($perPage);
+            $companies = collect([]);
+        } else {
+            $products = $this->productService->list($user, $request->only(['search', 'company_id', 'per_page']));
+            $companies = $user->isAdmin() 
+                ? $this->companyService->list(['per_page' => 200])->getCollection()
+                : collect([]);
+        }
 
         return view('products.index', compact('products', 'companies'));
     }

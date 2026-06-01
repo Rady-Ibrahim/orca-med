@@ -70,11 +70,19 @@
                             @endif
                         </td>
                         <td class="px-4 py-3 text-sm">
-                            <form method="POST" action="{{ route('activation-codes.destroy', $code) }}" onsubmit="return confirm('هل أنت متأكد من حذف هذا الكود؟')">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="text-red-600 hover:text-red-800 text-sm">حذف</button>
-                            </form>
+                            <div class="flex gap-2">
+                                <form method="POST" action="{{ route('activation-codes.toggle', $code) }}">
+                                    @csrf
+                                    <button type="submit" class="text-{{ $code->is_active ? 'orange' : 'green' }}-600 hover:text-{{ $code->is_active ? 'orange' : 'green' }}-800 text-sm">
+                                        {{ $code->is_active ? 'إيقاف' : 'تفعيل' }}
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ route('activation-codes.destroy', $code) }}" onsubmit="return confirm('هل أنت متأكد من حذف هذا الكود؟')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="text-red-600 hover:text-red-800 text-sm">حذف</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                 @empty
