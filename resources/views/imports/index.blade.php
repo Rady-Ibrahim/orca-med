@@ -62,6 +62,11 @@
             <a href="{{ route('imports.template') }}" class="text-sm text-blue-600 hover:text-blue-700">
                 تحميل قالب Excel
             </a>
+
+            {{-- Reconciliation Link --}}
+            <a href="{{ route('products.reconciliation.index') }}" class="text-sm text-purple-600 hover:text-purple-700">
+                صفحة التصحيح
+            </a>
         </form>
     </div>
 

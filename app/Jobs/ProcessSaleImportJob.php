@@ -8,12 +8,16 @@ use App\Models\UploadBatch;
 use App\Services\AnalyticsRollupService;
 use App\Services\SaleImportService;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Throwable;
 
 class ProcessSaleImportJob
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, SerializesModels;
+
+    public int $timeout = 600; // 10 minutes
+    public int $tries = 1;
 
     public function __construct(
         public int $uploadBatchId,

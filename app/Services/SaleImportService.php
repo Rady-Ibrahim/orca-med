@@ -50,6 +50,75 @@ class SaleImportService
         ]);
     }
 
+    /**
+     * Detect similar products in the uploaded file before processing
+     * Returns array of similar product names for reconciliation
+     */
+    public function detectSimilarProductsInFile(string $storedPath, int $companyId): array
+    {
+        \Log::info('detectSimilarProductsInFile started', ['stored_path' => $storedPath, 'company_id' => $companyId]);
+
+        $fullPath = Storage::disk('local')->path($storedPath);
+        if (! is_readable($fullPath)) {
+            \Log::error('File not readable', ['full_path' => $fullPath]);
+            return [];
+        }
+
+        $rows = Excel::toArray([], $fullPath)[0] ?? [];
+        if (empty($rows)) {
+            \Log::error('File is empty');
+            return [];
+        }
+
+        $headerRow = array_shift($rows);
+        \Log::info('Similarity header row', ['header' => $headerRow]);
+
+        $mapping = $this->validateExcelSchema($headerRow);
+        \Log::info('Similarity mapping result', ['mapping' => $mapping]);
+
+        if ($mapping === null) {
+            \Log::error('Validation failed in similarity detection');
+            return [];
+        }
+
+        // Extract product names from rows
+        $productNames = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $raw = $this->extractRow($row, $mapping);
+            $productName = $raw['product_name'] ?? null;
+
+            if ($productName && ! in_array($productName, $productNames, true)) {
+                $productNames[] = $productName;
+            }
+        }
+
+        \Log::info('Product names extracted', ['count' => count($productNames)]);
+
+        // Detect similarities using ProductSimilarityService
+        $similarities = [];
+        foreach ($productNames as $productName) {
+            $similarProduct = $this->findSimilarProduct($productName, $companyId);
+
+            if ($similarProduct) {
+                $similarities[$productName] = [
+                    'original' => $productName,
+                    'similar' => [[
+                        'product' => $similarProduct,
+                        'similarity' => $similarProduct['similarity'] ?? 0,
+                    ]],
+                ];
+            }
+        }
+
+        \Log::info('Similarities detected', ['count' => count($similarities)]);
+
+        return $similarities;
+    }
+
     public function processBatch(UploadBatch $batch): SaleImportResult
     {
         $batch->update([
@@ -72,6 +141,7 @@ class SaleImportService
             $headerRow = array_shift($rows);
             \Log::info('Import header row', ['batch_id' => $batch->id, 'header' => $headerRow]);
             $mapping = $this->validateExcelSchema($headerRow);
+            \Log::info('Import mapping result', ['batch_id' => $batch->id, 'mapping' => $mapping]);
 
             if ($mapping === null) {
                 return $this->failBatch($batch, 'تنسيق الأعمدة غير صحيح. راجع ملف القالب المتوقع.');
@@ -158,22 +228,14 @@ class SaleImportService
             $index = $normalized->search(fn (string $h) => in_array($h, array_map([$this, 'normalizeHeader'], $aliases), true));
 
             if ($index === false) {
-                if (in_array($canonical, config('sale_import.required_fields'), true)) {
-                    return null;
-                }
-
+                // Skip missing fields - make all fields optional
                 continue;
             }
 
             $mapping[$canonical] = $index;
         }
 
-        foreach (config('sale_import.required_fields') as $required) {
-            if (! isset($mapping[$required])) {
-                return null;
-            }
-        }
-
+        // Return mapping for available fields only - make all fields optional
         return $mapping;
     }
 
@@ -184,6 +246,8 @@ class SaleImportService
      */
     public function mapExcelToDatabase(array $rows, array $mapping, UploadBatch $batch): Collection
     {
+        \Log::info('mapExcelToDatabase started', ['batch_id' => $batch->id, 'total_rows' => count($rows)]);
+
         // Use company_id from batch to scope products
         $productsByName = Product::where('company_id', $batch->company_id)
             ->pluck('id', 'name')
@@ -296,7 +360,7 @@ class SaleImportService
                             ],
                             [
                                 'upload_batch_id' => $batch->id,
-                                'code' => strtoupper(substr(md5($productName), 0, 8)),
+                                'code' => strtoupper(substr(md5($batch->company_id . $productName), 0, 8)),
                                 'description' => null,
                             ]
                         );
@@ -307,7 +371,7 @@ class SaleImportService
                 }
             }
 
-            if ($quantity <= 0) {
+            if (isset($mapping['quantity']) && $quantity <= 0) {
                 $errors[] = [
                     'type' => self::ERROR_VALIDATION,
                     'column' => 'quantity',
@@ -449,6 +513,8 @@ class SaleImportService
 
     private function failBatch(UploadBatch $batch, string $message): SaleImportResult
     {
+        \Log::error('failBatch called', ['batch_id' => $batch->id, 'message' => $message]);
+
         $batch->update([
             'status' => UploadBatchStatus::Failed,
             'completed_at' => now(),

@@ -51,6 +51,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/search',       [\App\Http\Controllers\Web\SearchController::class,  'index'])->name('search.index');
         Route::get('/activation',  [\App\Http\Controllers\Web\ActivationController::class, 'index'])->name('activation.index');
         Route::post('/activation', [\App\Http\Controllers\Web\ActivationController::class, 'activate'])->name('activation.activate');
+        
+        // Product reconciliation routes
+        Route::get('/products/reconciliation', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'index'])->name('products.reconciliation.index');
+        Route::post('/products/reconciliation', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'store'])->name('products.reconciliation.store');
+        Route::post('/products/reconciliation/search', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'search'])->name('products.reconciliation.search');
+        Route::post('/products/reconciliation/process', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'processAfterReconciliation'])->name('products.reconciliation.process');
     });
 
     // ── Company-only ──────────────────────────────────────────

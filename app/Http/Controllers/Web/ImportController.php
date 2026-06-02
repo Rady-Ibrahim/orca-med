@@ -47,9 +47,16 @@ class ImportController extends Controller
 
         $user = auth()->user();
 
-        if (! $user->isAdmin()) {
+        // Allow admins and company users to upload
+        if (! $user->isAdmin() && ! $user->isCompanyUser()) {
             return redirect()->route('imports.index')
-                ->with('error', 'فقط الأدمن يمكنه رفع الملفات.');
+                ->with('error', 'غير مصرح لك برفع الملفات.');
+        }
+
+        // Company users can only upload for their own company
+        if ($user->isCompanyUser() && $user->company_id !== $request->integer('company_id')) {
+            return redirect()->route('imports.index')
+                ->with('error', 'يمكنك الرفع لشركتك فقط.');
         }
 
         $batch = $this->importService->createQueuedBatch(
@@ -60,6 +67,31 @@ class ImportController extends Controller
             $request->integer('province_id')
         );
 
+        // Detect similar products before processing
+        try {
+            $similarities = $this->importService->detectSimilarProductsInFile(
+                $batch->stored_path,
+                $batch->company_id
+            );
+
+            if (!empty($similarities)) {
+                // Store similarities in session and redirect to reconciliation page
+                session()->put('product_similarities', $similarities);
+                session()->put('reconciliation_company_id', $batch->company_id);
+                session()->put('reconciliation_upload_batch_id', $batch->id);
+
+                return redirect()->route('products.reconciliation.index')
+                    ->with('info', 'تم اكتشاف ' . count($similarities) . ' أسماء متشابهة. يرجى مراجعتها قبل المعالجة.');
+            }
+        } catch (\Throwable $e) {
+            // If similarity detection fails, log error but continue with processing
+            \Log::error('Similarity detection failed', [
+                'batch_id' => $batch->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // No similarities found or detection failed, proceed with processing
         ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
 
         return redirect()->route('imports.index')->with('status', 'تم رفع الملف وبدء المعالجة.');
