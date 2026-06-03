@@ -7,7 +7,7 @@ use App\Jobs\ProcessSaleImportJob;
 use App\Models\UploadBatch;
 use App\Services\CompanyService;
 use App\Services\ProvinceService;
-use App\Services\QuantitySummaryService;
+use App\Services\UploadBatchService;
 use App\Services\SaleImportService;
 use App\Services\SupplierService;
 use Illuminate\Http\Request;
@@ -22,7 +22,7 @@ class ImportController extends Controller
         private CompanyService $companyService,
         private SupplierService $supplierService,
         private ProvinceService $provinceService,
-        private QuantitySummaryService $quantityService,
+        private UploadBatchService $uploadBatchService,
     ) {}
 
     public function index(): View
@@ -147,45 +147,7 @@ class ImportController extends Controller
                 ->with('error', 'فقط الأدمن يمكنه حذف الرفوعات.');
         }
 
-        $companyId = $batch->company_id;
-
-        // Delete products created by this batch (only if not used in other batches' sales)
-        $orphanedProductIds = \App\Models\Product::where('upload_batch_id', $batch->id)
-            ->whereDoesntHave('sales', function ($query) use ($batch) {
-                $query->where('upload_batch_id', '!=', $batch->id);
-            })
-            ->pluck('id');
-        
-        if ($orphanedProductIds->isNotEmpty()) {
-            \App\Models\Product::whereIn('id', $orphanedProductIds)->delete();
-        }
-
-        // Delete pharmacies created by this batch (only if not used in other batches' sales)
-        $orphanedPharmacyIds = \App\Models\Pharmacy::where('upload_batch_id', $batch->id)
-            ->whereDoesntHave('sales', function ($query) use ($batch) {
-                $query->where('upload_batch_id', '!=', $batch->id);
-            })
-            ->pluck('id');
-        
-        if ($orphanedPharmacyIds->isNotEmpty()) {
-            \App\Models\Pharmacy::whereIn('id', $orphanedPharmacyIds)->delete();
-        }
-
-        // Delete the uploaded file from storage
-        if ($batch->stored_path) {
-            Storage::disk('local')->delete($batch->stored_path);
-        }
-
-        // Delete error report if exists
-        if ($batch->error_report_path) {
-            Storage::disk('local')->delete($batch->error_report_path);
-        }
-
-        // Delete the batch (cascade will delete sales and errors)
-        $batch->delete();
-
-        // Rebuild quantity summaries for the company after deletion
-        $this->quantityService->rebuildForCompany($companyId);
+        $this->uploadBatchService->deleteBatch($batch, $user);
 
         return redirect()->route('imports.index')->with('status', 'تم حذف الرفعة وكل البيانات المرتبطة بها بنجاح.');
     }

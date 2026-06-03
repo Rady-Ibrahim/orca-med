@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\UploadBatch;
 use App\Services\ProductSimilarityService;
+use App\Services\UploadBatchService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Session;
 
@@ -19,14 +21,104 @@ class ProductReconciliationController extends Controller
      */
     public function index(Request $request)
     {
-        $similarities = Session::get('product_similarities', []);
-        $companyId = Session::get('reconciliation_company_id');
-        $uploadBatchId = Session::get('reconciliation_upload_batch_id');
+        $batchId = (int) $request->query('batch');
+
+        // If batch parameter is provided, always load from batch (ignore session)
+        if ($batchId > 0) {
+            $batch = UploadBatch::with(['errors' => function ($query) {
+                $query->where('error_type', UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+                    ->orderBy('row_number');
+            }])->find($batchId);
+
+            if (! $batch) {
+                return redirect()
+                    ->route('imports.index')
+                    ->with('error', 'الرفعة غير موجودة.');
+            }
+
+            $user = $request->user();
+
+            if (! $user?->isAdmin() && ! ($user?->isCompanyUser() && $user->company_id === $batch->company_id)) {
+                return redirect()
+                    ->route('imports.index')
+                    ->with('error', 'غير مصرح لك بالوصول لهذه الرفعة.');
+            }
+
+            $errors = $batch->errors;
+
+            if ($errors->isEmpty()) {
+                return redirect()
+                    ->route('imports.show', $batch->id)
+                    ->with('error', 'لا توجد أخطاء تصحيح منتجات لهذه الرفعة.');
+            }
+
+            $candidateIds = collect();
+
+            foreach ($errors as $error) {
+                $candidates = collect($error->row_data['candidates'] ?? [])
+                    ->pluck('product_id')
+                    ->filter();
+
+                $candidateIds = $candidateIds->merge($candidates);
+            }
+
+            $candidateProducts = Product::whereIn('id', $candidateIds->unique()->all())
+                ->get()
+                ->keyBy('id');
+
+            $grouped = [];
+
+            foreach ($errors as $error) {
+                $rawProductName = $error->row_data['raw']['product_name'] ?? null;
+
+                if (! $rawProductName) {
+                    continue;
+                }
+
+                $candidates = [];
+                foreach ($error->row_data['candidates'] ?? [] as $candidate) {
+                    $productId = $candidate['product_id'] ?? null;
+                    if ($productId && $candidateProducts->has($productId)) {
+                        $candidates[] = [
+                            'product' => $candidateProducts->get($productId),
+                            'similarity' => ($candidate['similarity'] ?? 0) / 100,
+                        ];
+                    }
+                }
+
+                // Add each error row separately (not grouped)
+                $grouped[] = [
+                    'original' => $rawProductName,
+                    'row_number' => $error->row_number,
+                    'similar' => $candidates,
+                ];
+            }
+
+            $similarities = $grouped;
+            $companyId = $batch->company_id;
+            $uploadBatchId = $batch->id;
+
+            // Update session
+            Session::put('product_similarities', $similarities);
+            Session::put('reconciliation_company_id', $companyId);
+            Session::put('reconciliation_upload_batch_id', $uploadBatchId);
+        } else {
+            // Fallback to session if no batch parameter
+            $similarities = Session::get('product_similarities', []);
+            $companyId = Session::get('reconciliation_company_id');
+            $uploadBatchId = Session::get('reconciliation_upload_batch_id');
+        }
 
         if (empty($similarities)) {
             return redirect()
                 ->route('imports.index')
                 ->with('error', 'لا توجد أسماء متشابهة للتصحيح.');
+        }
+
+        if (! $companyId || ! $uploadBatchId) {
+            return redirect()
+                ->route('imports.index')
+                ->with('error', 'لم يتم العثور على معلومات الرفعة. يرجى المحاولة مرة أخرى.');
         }
 
         return view('products.reconciliation', [
@@ -49,26 +141,79 @@ class ProductReconciliationController extends Controller
         ]);
 
         $choices = $request->input('choices', []);
-        $companyId = $request->input('company_id');
-        $uploadBatchId = $request->input('upload_batch_id');
+        $companyId = $request->input('company_id') ?: Session::get('reconciliation_company_id');
+        $uploadBatchId = $request->input('upload_batch_id') ?: Session::get('reconciliation_upload_batch_id');
 
-        // Store the reconciliation choices in session
-        Session::put('reconciliation_choices', $choices);
-        Session::put('reconciliation_company_id', $companyId);
-        Session::put('reconciliation_upload_batch_id', $uploadBatchId);
-
-        // Clear the similarities from session
-        Session::forget('product_similarities');
-
-        // Process the batch with reconciliation choices
-        $batch = \App\Models\UploadBatch::find($uploadBatchId);
-        if ($batch) {
-            \App\Jobs\ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
+        if (! $companyId || ! $uploadBatchId) {
+            return redirect()
+                ->route('imports.index')
+                ->with('error', 'لم يتم العثور على معلومات الرفعة. يرجى المحاولة مرة أخرى.');
         }
 
+        $batch = \App\Models\UploadBatch::find($uploadBatchId);
+        if (! $batch) {
+            return redirect()
+                ->route('imports.index')
+                ->with('error', 'الرفعة غير موجودة.');
+        }
+
+        // Use batch's company_id instead of relying on form input
+        $companyId = $batch->company_id;
+
+        $uploadBatchService = app(\App\Services\UploadBatchService::class);
+        $user = auth()->user();
+
+        foreach ($choices as $choice) {
+            $originalName = $choice['original'];
+            $createNew = ! empty($choice['create_new']);
+            $selectedProductId = $choice['selected_product_id'] ?? null;
+
+            // Get all error rows for this product name
+            $errors = $batch->errors()
+                ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+                ->where('row_data->raw->product_name', $originalName)
+                ->get();
+
+            foreach ($errors as $error) {
+                if ($createNew) {
+                    // Create new product
+                    $data = [
+                        'row_number' => $error->row_number,
+                        'action' => 'create_new',
+                    ];
+                } elseif ($selectedProductId) {
+                    // Map to existing product
+                    $data = [
+                        'row_number' => $error->row_number,
+                        'action' => 'map_to_existing',
+                        'product_id' => $selectedProductId,
+                    ];
+                } else {
+                    // Skip if no action selected
+                    continue;
+                }
+
+                try {
+                    $uploadBatchService->resolveAmbiguousProduct($batch, $data, $user);
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    // Log error but continue processing other rows
+                    \Log::error('Failed to resolve ambiguous product', [
+                        'row_number' => $error->row_number,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        // Clear reconciliation data from session
+        Session::forget('product_similarities');
+        Session::forget('reconciliation_choices');
+        Session::forget('reconciliation_company_id');
+        Session::forget('reconciliation_upload_batch_id');
+
         return redirect()
-            ->route('imports.index')
-            ->with('success', 'تم حفظ اختيارات التصحيح. جاري معالجة الملف...');
+            ->route('imports.show', $batch->id)
+            ->with('success', 'تم حفظ اختيارات التصحيح بنجاح.');
     }
 
     /**

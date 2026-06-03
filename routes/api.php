@@ -48,6 +48,10 @@ Route::prefix('v1')->group(function () {
             Route::get('upload-batches', [UploadBatchController::class, 'index']);
             Route::get('upload-batches/{uploadBatch}', [UploadBatchController::class, 'show']);
             Route::get('upload-batches/{uploadBatch}/errors', [UploadBatchController::class, 'downloadErrors']);
+            Route::middleware(EnsureUserIsAdmin::class)->group(function () {
+                Route::get('upload-batches/{uploadBatch}/ambiguous-products', [UploadBatchController::class, 'ambiguousProducts']);
+                Route::post('upload-batches/{uploadBatch}/resolve-product', [UploadBatchController::class, 'resolveAmbiguousProduct']);
+            });
         });
 
         Route::middleware(CheckPharmacyAccess::class)->group(function () {

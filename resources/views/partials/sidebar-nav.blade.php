@@ -8,6 +8,7 @@
         ['route' => 'suppliers.index',  'label' => 'الموردون',         'icon' => 'truck'],
         ['route' => 'pharmacies.index', 'label' => 'الصيدليات',        'icon' => 'building'],
         ['route' => 'products.index',   'label' => 'المنتجات',         'icon' => 'package'],
+        ['route' => 'products.reconciliation.index', 'label' => 'تصحيح المنتجات', 'icon' => 'search'],
         ['route' => 'sales.index',      'label' => 'المبيعات',         'icon' => 'chart-bar'],
         ['route' => 'reports.index',    'label' => 'التقارير',         'icon' => 'document'],
         ['route' => 'imports.index',    'label' => 'استيراد Excel',    'icon' => 'upload'],
@@ -20,6 +21,7 @@
     $companyNav = [
         ['route' => 'dashboard',               'label' => 'لوحة القيادة',      'icon' => 'home'],
         ['route' => 'products.index',          'label' => 'المنتجات',          'icon' => 'package'],
+        ['route' => 'products.reconciliation.index', 'label' => 'تصحيح المنتجات', 'icon' => 'search'],
         ['route' => 'sales.index',             'label' => 'المبيعات',          'icon' => 'chart-bar'],
         ['route' => 'reports.index',           'label' => 'التقارير',          'icon' => 'document'],
         ['route' => 'activation.index',        'label' => 'تفعيل التحليلات',   'icon' => 'key'],

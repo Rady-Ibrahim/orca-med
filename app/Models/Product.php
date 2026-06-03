@@ -38,6 +38,11 @@ class Product extends Model
         return $this->hasMany(Sale::class);
     }
 
+    public function aliases(): HasMany
+    {
+        return $this->hasMany(ProductAlias::class);
+    }
+
     public function pharmacyAccessRequests(): HasMany
     {
         return $this->hasMany(PharmacyAccessRequest::class);

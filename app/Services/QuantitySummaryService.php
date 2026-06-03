@@ -168,25 +168,34 @@ class QuantitySummaryService
         // Get all sales for this company
         $sales = Sale::query()
             ->whereHas('uploadBatch', fn ($q) => $q->where('company_id', $companyId))
+            ->with('uploadBatch')
             ->get();
 
         // Group and insert summaries
-        $summaries = $sales->groupBy([
-            'product_id',
-            'province_id',
-            'warehouse_id',
-        ])->map(function ($group) {
-            $first = $group->first();
-            return [
-                'company_id' => $first->uploadBatch->company_id,
-                'product_id' => $first->product_id,
-                'province_id' => $first->province_id,
-                'warehouse_id' => $first->warehouse_id,
-                'total_quantity' => $group->sum('quantity'),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-        })->values()->all();
+        $summaries = $sales
+            ->groupBy(function (Sale $sale) {
+                return implode('|', [
+                    $sale->product_id ?? 'null',
+                    $sale->province_id ?? 'null',
+                    $sale->warehouse_id ?? 'null',
+                ]);
+            })
+            ->map(function ($group) {
+                $first = $group->first();
+
+                return [
+                    'company_id' => optional($first->uploadBatch)->company_id,
+                    'product_id' => $first->product_id,
+                    'province_id' => $first->province_id,
+                    'warehouse_id' => $first->warehouse_id,
+                    'total_quantity' => $group->sum('quantity'),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            })
+            ->filter(fn ($summary) => ! is_null($summary['company_id']))
+            ->values()
+            ->all();
 
         // Insert in chunks
         foreach (array_chunk($summaries, 500) as $chunk) {

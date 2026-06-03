@@ -96,9 +96,28 @@
     {{-- Errors Table --}}
     <div class="lg:col-span-2">
         <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
-            <div class="p-6 border-b border-slate-200">
+            <div class="p-6 border-b border-slate-200 flex items-center justify-between gap-4">
                 <h3 class="text-lg font-semibold text-slate-800">الأخطاء</h3>
+
+                @if($batch->errors->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)->isNotEmpty())
+                    <a href="{{ route('products.reconciliation.index', ['batch' => $batch->id]) }}"
+                       class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        تصحيح يدوي الآن
+                    </a>
+                @endif
             </div>
+
+            {{-- Success message when no errors --}}
+            @if($batch->errors->isEmpty())
+                <div class="p-8 text-center">
+                    <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 mb-4">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <h4 class="text-lg font-medium text-slate-800 mb-2">تم معالجة الملف بنجاح</h4>
+                    <p class="text-slate-500">تم معالجة جميع الصفوف بنجاح. لا توجد أخطاء.</p>
+                </div>
+            @endif
 
             <div class="overflow-x-auto">
                 <table class="w-full">
