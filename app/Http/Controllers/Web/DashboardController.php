@@ -21,9 +21,21 @@ class DashboardController extends Controller
             default     => 'dashboard.admin',
         };
 
-        return view($view, [
+        $data = [
             'totals' => $stats['totals'],
             'charts' => $stats['charts'],
-        ]);
+        ];
+
+        // Add quantity summaries for company users
+        if ($user->isCompanyUser()) {
+            $data['quantity_summaries'] = $this->dashboard->getQuantitySummaries($user);
+            
+            // Add pharmacy details for activated companies
+            if ($user->hasAnalyticsAccess()) {
+                $data['pharmacy_details'] = $this->dashboard->getPharmacyDetails($user);
+            }
+        }
+
+        return view($view, $data);
     }
 }

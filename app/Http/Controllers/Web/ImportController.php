@@ -7,6 +7,7 @@ use App\Jobs\ProcessSaleImportJob;
 use App\Models\UploadBatch;
 use App\Services\CompanyService;
 use App\Services\ProvinceService;
+use App\Services\QuantitySummaryService;
 use App\Services\SaleImportService;
 use App\Services\SupplierService;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class ImportController extends Controller
         private CompanyService $companyService,
         private SupplierService $supplierService,
         private ProvinceService $provinceService,
+        private QuantitySummaryService $quantityService,
     ) {}
 
     public function index(): View
@@ -145,6 +147,8 @@ class ImportController extends Controller
                 ->with('error', 'فقط الأدمن يمكنه حذف الرفوعات.');
         }
 
+        $companyId = $batch->company_id;
+
         // Delete products created by this batch (only if not used in other batches' sales)
         $orphanedProductIds = \App\Models\Product::where('upload_batch_id', $batch->id)
             ->whereDoesntHave('sales', function ($query) use ($batch) {
@@ -179,6 +183,9 @@ class ImportController extends Controller
 
         // Delete the batch (cascade will delete sales and errors)
         $batch->delete();
+
+        // Rebuild quantity summaries for the company after deletion
+        $this->quantityService->rebuildForCompany($companyId);
 
         return redirect()->route('imports.index')->with('status', 'تم حذف الرفعة وكل البيانات المرتبطة بها بنجاح.');
     }

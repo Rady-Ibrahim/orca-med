@@ -15,6 +15,13 @@ class DashboardService
 {
     use AppliesCompanyScope;
 
+    private QuantitySummaryService $quantitySummary;
+
+    public function __construct(QuantitySummaryService $quantitySummary)
+    {
+        $this->quantitySummary = $quantitySummary;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -312,5 +319,22 @@ class DashboardService
                 'total_revenue' => round($totalRevenue, 2),
             ];
         })->all();
+    }
+
+    /**
+     * Get quantity summaries for the dashboard
+     * Returns totals only for non-activated companies, full details for activated ones
+     */
+    public function getQuantitySummaries(User $user, array $filters = []): array
+    {
+        return $this->quantitySummary->getSummaries($user, $filters);
+    }
+
+    /**
+     * Get pharmacy details for activated companies
+     */
+    public function getPharmacyDetails(User $user, array $filters = []): array
+    {
+        return $this->quantitySummary->getPharmacyDetails($user, $filters);
     }
 }

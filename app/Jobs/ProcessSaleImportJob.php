@@ -6,6 +6,7 @@ use App\Enums\UploadBatchStatus;
 use App\Models\Sale;
 use App\Models\UploadBatch;
 use App\Services\AnalyticsRollupService;
+use App\Services\QuantitySummaryService;
 use App\Services\SaleImportService;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -23,7 +24,7 @@ class ProcessSaleImportJob
         public int $uploadBatchId,
     ) {}
 
-    public function handle(SaleImportService $importService, AnalyticsRollupService $rollupService): void
+    public function handle(SaleImportService $importService, AnalyticsRollupService $rollupService, QuantitySummaryService $quantityService): void
     {
         $batch = UploadBatch::find($this->uploadBatchId);
         if (! $batch) {
@@ -41,6 +42,9 @@ class ProcessSaleImportJob
                     ->all();
 
                 $rollupService->rebuildForProductIds($productIds);
+
+                // Rebuild quantity summaries for the company
+                $quantityService->rebuildForCompany($batch->company_id);
             }
         } catch (Throwable $e) {
             $batch->update([
