@@ -23,6 +23,13 @@ class ProductReconciliationController extends Controller
     {
         $batchId = (int) $request->query('batch');
 
+        // Clear session if no batch parameter provided (fresh page load)
+        if ($batchId === 0) {
+            Session::forget('product_similarities');
+            Session::forget('reconciliation_company_id');
+            Session::forget('reconciliation_upload_batch_id');
+        }
+
         // If batch parameter is provided, always load from batch (ignore session)
         if ($batchId > 0) {
             $batch = UploadBatch::with(['errors' => function ($query) {

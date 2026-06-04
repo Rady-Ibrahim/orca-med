@@ -25,10 +25,15 @@ class ReportController extends Controller
         $from = $request->input('from');
         $to = $request->input('to');
         $companyId = $request->input('company_id');
+        $supplierId = $request->input('supplier_id');
         
         $hasAnalyticsAccess = $user->hasAnalyticsAccess() || $user->isAdmin();
 
-        $stats = $this->dashboard->getStats($user, ['from' => $from, 'to' => $to]);
+        $stats = $this->dashboard->getStats($user, [
+            'from' => $from,
+            'to' => $to,
+            'supplier_id' => $supplierId,
+        ]);
 
         // Load filter options for admin
         $companies = $user->isAdmin()
@@ -39,7 +44,7 @@ class ReportController extends Controller
 
         // Additional KPIs for reports (admin always sees, company only if has access)
         $additionalKPIs = ($user->isAdmin() || $hasAnalyticsAccess) 
-            ? $this->getAdditionalKPIs($user, $from, $to, $companyId) 
+            ? $this->getAdditionalKPIs($user, $from, $to, $companyId, $supplierId) 
             : null;
 
         return view('reports.index', [
@@ -53,12 +58,13 @@ class ReportController extends Controller
                 'from' => $from,
                 'to' => $to,
                 'company_id' => $companyId,
+                'supplier_id' => $supplierId,
             ],
             'has_analytics_access' => $hasAnalyticsAccess,
         ]);
     }
 
-    private function getAdditionalKPIs($user, ?string $from, ?string $to, ?int $companyId = null): array
+    private function getAdditionalKPIs($user, ?string $from, ?string $to, ?int $companyId = null, ?int $supplierId = null): array
     {
         $query = \App\Models\Sale::query();
         
@@ -74,6 +80,10 @@ class ReportController extends Controller
             $query->whereHas('uploadBatch', function ($q) use ($companyId) {
                 $q->where('company_id', $companyId);
             });
+        }
+
+        if ($supplierId) {
+            $query->where('supplier_id', $supplierId);
         }
 
         if ($from) {

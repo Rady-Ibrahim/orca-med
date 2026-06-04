@@ -28,7 +28,8 @@ class ReportService
     {
         $from = $filters['from'] ?? null;
         $to = $filters['to'] ?? null;
-        $limit = (int) ($filters['limit'] ?? 10);
+        $limit = $filters['limit'] ?? null;
+        $supplierId = $filters['supplier_id'] ?? null;
 
         $base = Sale::query()
             ->join('products', 'sales.product_id', '=', 'products.id')
@@ -54,8 +55,27 @@ class ReportService
             $base->where('products.company_id', $filters['company_id']);
         }
 
-        $top = (clone $base)->orderByDesc('total_quantity')->limit($limit)->get();
-        $bottom = (clone $base)->orderBy('total_quantity')->limit($limit)->get();
+        $base->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+
+        $totalVolume = (clone $base)->sum('sales.quantity');
+
+        $topQuery = (clone $base)->orderByDesc('total_quantity');
+        $bottomQuery = (clone $base)->orderBy('total_quantity');
+
+        if (is_numeric($limit)) {
+            $topQuery->limit((int) $limit);
+            $bottomQuery->limit((int) $limit);
+        }
+
+        $top = $topQuery->get()->map(function ($row) use ($totalVolume) {
+            $row->percentage = $totalVolume ? round(($row->total_quantity / $totalVolume) * 100, 2) : 0;
+            return $row;
+        });
+
+        $bottom = $bottomQuery->get()->map(function ($row) use ($totalVolume) {
+            $row->percentage = $totalVolume ? round(($row->total_quantity / $totalVolume) * 100, 2) : 0;
+            return $row;
+        });
 
         $byCompany = Product::query()
             ->join('companies', 'products.company_id', '=', 'companies.id')
@@ -74,6 +94,8 @@ class ReportService
                 $q->whereNull('sales.sold_at')->orWhereDate('sales.sold_at', '>=', $from);
             });
         }
+
+        $byCompany->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
 
         return [
             'top' => $top,

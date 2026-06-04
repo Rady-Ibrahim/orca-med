@@ -47,6 +47,17 @@
             <input type="date" name="to" value="{{ $filters['to'] ?? '' }}"
                    class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
         </div>
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-slate-700 mb-1">المورد</label>
+            <select name="supplier_id" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">الكل</option>
+                @foreach($suppliers as $supplier)
+                    <option value="{{ $supplier->id }}" {{ ($filters['supplier_id'] ?? null) == $supplier->id ? 'selected' : '' }}>
+                        {{ $supplier->name }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
         <button type="submit" class="bg-blue-600 text-white py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors">
             تطبيق الفلتر
         </button>

@@ -29,6 +29,8 @@ class DashboardService
     {
         $from = $filters['from'] ?? null;
         $to = $filters['to'] ?? null;
+        $supplierId = $filters['supplier_id'] ?? null;
+        $productLimit = $filters['product_limit'] ?? null;
         $hasAnalyticsAccess = $user->hasAnalyticsAccess();
 
         $salesQuery = Sale::query();
@@ -40,9 +42,15 @@ class DashboardService
         if ($to) {
             $salesQuery->whereDate('sold_at', '<=', $to);
         }
+        if ($supplierId) {
+            $salesQuery->where('supplier_id', $supplierId);
+        }
 
         $productsQuery = Product::query();
         $this->scopeProducts($productsQuery, $user);
+        if ($supplierId) {
+            $productsQuery->whereHas('sales', fn ($q) => $q->where('supplier_id', $supplierId));
+        }
 
         // Calculate total revenue using the financial formula
         $totalRevenue = (clone $salesQuery)->get()->sum(function ($sale) {
@@ -66,11 +74,11 @@ class DashboardService
                     'suppliers' => (clone $salesQuery)->distinct('supplier_id')->count('supplier_id'),
                 ],
                 'charts' => $hasAnalyticsAccess ? [
-                    'sales_by_province' => $this->salesByProvince($user, $from, $to),
-                    'top_suppliers' => $this->topSuppliers($user, $from, $to),
-                    'top_products' => $this->topProducts($user, $from, $to, 10),
-                    'bottom_products' => $this->bottomProducts($user, $from, $to, 10),
-                    'sales_over_time' => $this->salesOverTime($user, $from, $to),
+                    'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                    'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
+                    'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
+                    'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
+                    'sales_over_time' => $this->salesOverTime($user, $from, $to, $filters),
                     'products_by_company' => $this->productsByCompanyForWarehouse($wid),
                 ] : [],
             ];
@@ -89,11 +97,11 @@ class DashboardService
                     'total_revenue' => $hasAnalyticsAccess ? round($totalRevenue, 2) : null,
                 ],
                 'charts' => $hasAnalyticsAccess ? [
-                    'sales_by_province' => $this->salesByProvince($user, $from, $to),
-                    'top_suppliers' => $this->topSuppliers($user, $from, $to),
-                    'top_products' => $this->topProducts($user, $from, $to, 10),
-                    'bottom_products' => $this->bottomProducts($user, $from, $to, 10),
-                    'sales_over_time' => $this->salesOverTime($user, $from, $to),
+                    'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                    'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
+                    'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
+                    'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
+                    'sales_over_time' => $this->salesOverTime($user, $from, $to, $filters),
                     'products_by_company' => $this->productsByCompany($user),
                 ] : [],
             ];
@@ -111,11 +119,11 @@ class DashboardService
                 'total_revenue' => round($totalRevenue, 2),
             ],
             'charts' => [
-                'sales_by_province' => $this->salesByProvince($user, $from, $to),
-                'top_suppliers' => $this->topSuppliers($user, $from, $to),
-                'top_products' => $this->topProducts($user, $from, $to, 10),
-                'bottom_products' => $this->bottomProducts($user, $from, $to, 10),
-                'sales_over_time' => $this->salesOverTime($user, $from, $to),
+                'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
+                'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
+                'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
+                'sales_over_time' => $this->salesOverTime($user, $from, $to, $filters),
                 'products_by_company' => $this->productsByCompany($user),
             ],
             'stats_by_company' => $this->getStatsByCompany($from, $to),
@@ -125,8 +133,10 @@ class DashboardService
     /**
      * @return list<array{label: string, value: int}>
      */
-    private function salesByProvince(User $user, ?string $from, ?string $to): array
+    private function salesByProvince(User $user, ?string $from, ?string $to, array $filters = []): array
     {
+        $supplierId = $filters['supplier_id'] ?? null;
+
         $query = Sale::query()
             ->join('provinces', 'sales.province_id', '=', 'provinces.id')
             ->select('provinces.name as label', DB::raw('SUM(sales.quantity) as value'))
@@ -136,6 +146,7 @@ class DashboardService
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
+        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
 
         return $query->get()->map(fn ($row) => [
             'label' => $row->label,
@@ -146,17 +157,23 @@ class DashboardService
     /**
      * @return list<array{label: string, value: int}>
      */
-    private function topSuppliers(User $user, ?string $from, ?string $to, int $limit = 10): array
+    private function topSuppliers(User $user, ?string $from, ?string $to, ?int $limit = 10, array $filters = []): array
     {
+        $supplierId = $filters['supplier_id'] ?? null;
+
         $query = Sale::query()
             ->join('suppliers', 'sales.supplier_id', '=', 'suppliers.id')
             ->select('suppliers.name as label', DB::raw('COUNT(*) as value'))
             ->groupBy('suppliers.id', 'suppliers.name')
-            ->orderByDesc('value')
-            ->limit($limit);
+            ->orderByDesc('value');
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
+        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+
+        if (is_numeric($limit)) {
+            $query->limit((int) $limit);
+        }
 
         return $query->get()->map(fn ($row) => [
             'label' => $row->label,
@@ -167,24 +184,32 @@ class DashboardService
     /**
      * @return list<array{label: string, value: int, code: string|null}>
      */
-    private function topProducts(User $user, ?string $from, ?string $to, int $limit): array
+    private function topProducts(User $user, ?string $from, ?string $to, ?int $limit = 10, array $filters = []): array
     {
-        return $this->rankedProducts($user, $from, $to, $limit, 'desc');
+        return $this->rankedProducts($user, $from, $to, $limit, 'desc', $filters);
     }
 
     /**
      * @return list<array{label: string, value: int, code: string|null}>
      */
-    private function bottomProducts(User $user, ?string $from, ?string $to, int $limit): array
+    private function bottomProducts(User $user, ?string $from, ?string $to, ?int $limit = 10, array $filters = []): array
     {
-        return $this->rankedProducts($user, $from, $to, $limit, 'asc');
+        return $this->rankedProducts($user, $from, $to, $limit, 'asc', $filters);
     }
 
     /**
      * @return list<array{label: string, value: int, code: string|null}>
      */
-    private function rankedProducts(User $user, ?string $from, ?string $to, int $limit, string $direction): array
+    private function rankedProducts(User $user, ?string $from, ?string $to, ?int $limit, string $direction, array $filters = []): array
     {
+        $supplierId = $filters['supplier_id'] ?? null;
+
+        $totalVolumeQuery = Sale::query();
+        $this->scopeSales($totalVolumeQuery, $user);
+        $this->applyDateFilter($totalVolumeQuery, $from, $to);
+        $totalVolumeQuery->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $totalVolume = (int) $totalVolumeQuery->sum('quantity');
+
         $query = Sale::query()
             ->join('products', 'sales.product_id', '=', 'products.id')
             ->select(
@@ -193,24 +218,31 @@ class DashboardService
                 DB::raw('SUM(sales.quantity) as value')
             )
             ->groupBy('products.id', 'products.name', 'products.code')
-            ->orderBy('value', $direction)
-            ->limit($limit);
+            ->orderBy('value', $direction);
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
+        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+
+        if (is_numeric($limit)) {
+            $query->limit((int) $limit);
+        }
 
         return $query->get()->map(fn ($row) => [
             'label' => $row->label,
             'code' => $row->code,
             'value' => (int) $row->value,
+            'percentage' => $totalVolume ? round(($row->value / $totalVolume) * 100, 2) : 0,
         ])->all();
     }
 
     /**
      * @return list<array{label: string, value: int}>
      */
-    private function salesOverTime(User $user, ?string $from, ?string $to): array
+    private function salesOverTime(User $user, ?string $from, ?string $to, array $filters = []): array
     {
+        $supplierId = $filters['supplier_id'] ?? null;
+
         $query = Sale::query()
             ->select(DB::raw('DATE(sold_at) as label'), DB::raw('SUM(quantity) as value'))
             ->groupBy(DB::raw('DATE(sold_at)'))
@@ -219,6 +251,7 @@ class DashboardService
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
+        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
 
         return $query->get()->map(fn ($row) => [
             'label' => (string) $row->label,
