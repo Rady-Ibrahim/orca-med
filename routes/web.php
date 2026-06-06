@@ -20,12 +20,13 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin-only ────────────────────────────────────────────
     Route::middleware('role:admin')->group(function () {
-        Route::resource('provinces',       \App\Http\Controllers\Web\ProvinceController::class)->only(['index','create','store','edit','update','destroy']);
-        Route::resource('suppliers',       \App\Http\Controllers\Web\SupplierController::class)->only(['index','create','store','edit','update','destroy']);
-        Route::resource('pharmacies',      \App\Http\Controllers\Web\PharmacyController::class)->only(['index','create','store','edit','update','destroy','show']);
-        Route::resource('users',           \App\Http\Controllers\Web\UserController::class)->only(['index','create','store','edit','update','destroy']);
-        Route::resource('companies',       \App\Http\Controllers\Web\CompanyController::class)->only(['index','create','store','edit','update','destroy']);
-        Route::resource('access-requests', \App\Http\Controllers\Web\PharmacyAccessRequestController::class)->only(['index','update']);
+        Route::resource('provinces',       \App\Http\Controllers\Web\ProvinceController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::resource('suppliers',       \App\Http\Controllers\Web\SupplierController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::resource('pharmacies',      \App\Http\Controllers\Web\PharmacyController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy', 'show']);
+        Route::get('/pharmacies/{pharmacy}/report', [\App\Http\Controllers\Web\PharmacyController::class, 'report'])->name('pharmacies.report');
+        Route::resource('users',           \App\Http\Controllers\Web\UserController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::resource('companies',       \App\Http\Controllers\Web\CompanyController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::resource('access-requests', \App\Http\Controllers\Web\PharmacyAccessRequestController::class)->only(['index', 'update']);
     });
 
     // ── Admin-only (Imports) ───────────────────────────────────
@@ -44,8 +45,8 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin + Company ───────────────────────────────────────
     Route::middleware('role:admin,company')->group(function () {
-        Route::resource('products', \App\Http\Controllers\Web\ProductController::class)->only(['index','create','store','edit','update','destroy']);
-        Route::resource('sales',    \App\Http\Controllers\Web\SalesController::class)->only(['index','show']);
+        Route::resource('products', \App\Http\Controllers\Web\ProductController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::resource('sales',    \App\Http\Controllers\Web\SalesController::class)->only(['index', 'show']);
         Route::get('/reports',      [\App\Http\Controllers\Web\ReportController::class,  'index'])->name('reports.index');
         Route::get('/reports/sales/export', [\App\Http\Controllers\Web\ReportController::class, 'exportSales'])->name('reports.export-sales');
         Route::get('/reports/sales/excel', [\App\Http\Controllers\Web\ReportController::class, 'exportSalesExcel'])->name('reports.export-sales-excel');
@@ -54,7 +55,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/search',       [\App\Http\Controllers\Web\SearchController::class,  'index'])->name('search.index');
         Route::get('/activation',  [\App\Http\Controllers\Web\ActivationController::class, 'index'])->name('activation.index');
         Route::post('/activation', [\App\Http\Controllers\Web\ActivationController::class, 'activate'])->name('activation.activate');
-        
+
         // Product reconciliation routes
         Route::get('/products/reconciliation', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'index'])->name('products.reconciliation.index');
         Route::post('/products/reconciliation', [\App\Http\Controllers\Web\ProductReconciliationController::class, 'store'])->name('products.reconciliation.store');
@@ -65,9 +66,8 @@ Route::middleware('auth')->group(function () {
     // ── Company-only ──────────────────────────────────────────
     Route::middleware('role:company')->group(function () {
         Route::get('/analytics/products',                    [\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'products'])->name('analytics.products');
-        Route::get('/analytics/products/{product}/provinces',[\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'provinces'])->name('analytics.provinces');
-        Route::get('/analytics/products/{product}/pharmacies',[\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'pharmacies'])->name('analytics.pharmacies');
+        Route::get('/analytics/products/{product}/provinces', [\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'provinces'])->name('analytics.provinces');
+        Route::get('/analytics/products/{product}/pharmacies', [\App\Http\Controllers\Web\CompanyAnalyticsController::class, 'pharmacies'])->name('analytics.pharmacies');
         Route::post('/pharmacy-access-requests',             [\App\Http\Controllers\Web\PharmacyAccessRequestController::class, 'store'])->name('pharmacy-access-requests.store');
     });
-
 });

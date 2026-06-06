@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <title>تقرير المبيعات</title>
     <style>
-        body { font-family: Arial, sans-serif; font-size: 12px; }
+        * { font-family: dejavusans, sans-serif; }
+        body { font-family: dejavusans, sans-serif; font-size: 12px; direction: rtl; text-align: right; }
+        h1, h2, h3, p, th, td { font-family: dejavusans, sans-serif; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
         th { background-color: #f5f5f5; font-weight: bold; }

@@ -5,17 +5,54 @@ namespace App\Services;
 use App\Models\Pharmacy;
 use App\Models\Supplier;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class PharmacyService
 {
     public function list(array $filters = []): LengthAwarePaginator
     {
+        $pharmacyIds = Pharmacy::query()
+            ->when($filters['province_id'] ?? null, fn($q, $id) => $q->where('province_id', $id))
+            ->when($filters['supplier_id'] ?? null, fn($q, $id) => $q->where('supplier_id', $id))
+            ->when($filters['search'] ?? null, fn($q, $search) => $q->where('name', 'like', "%{$search}%"))
+            ->orderBy('name')
+            ->pluck('id');
+
         return Pharmacy::query()
             ->with(['supplier', 'province'])
-            ->when($filters['province_id'] ?? null, fn ($q, $id) => $q->where('province_id', $id))
-            ->when($filters['supplier_id'] ?? null, fn ($q, $id) => $q->where('supplier_id', $id))
-            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('name', 'like', "%{$search}%"))
-            ->orderBy('name')
+            ->whereIn('pharmacies.id', $pharmacyIds)
+            ->leftJoin('sales', 'pharmacies.id', '=', 'sales.pharmacy_id')
+            ->leftJoin('products', 'sales.product_id', '=', 'products.id')
+            ->select(
+                'pharmacies.id',
+                'pharmacies.name',
+                'pharmacies.supplier_id',
+                'pharmacies.province_id',
+                'pharmacies.warehouse_id',
+                'pharmacies.license_number',
+                'pharmacies.phone',
+                'pharmacies.address',
+                'pharmacies.upload_batch_id',
+                'pharmacies.created_at',
+                'pharmacies.updated_at',
+                DB::raw('COUNT(DISTINCT sales.id) as sales_count'),
+                DB::raw('COUNT(DISTINCT products.id) as products_count'),
+                DB::raw('COALESCE(SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)), 0) as total_revenue')
+            )
+            ->groupBy(
+                'pharmacies.id',
+                'pharmacies.name',
+                'pharmacies.supplier_id',
+                'pharmacies.province_id',
+                'pharmacies.warehouse_id',
+                'pharmacies.license_number',
+                'pharmacies.phone',
+                'pharmacies.address',
+                'pharmacies.upload_batch_id',
+                'pharmacies.created_at',
+                'pharmacies.updated_at'
+            )
+            ->orderBy('pharmacies.name')
             ->paginate($filters['per_page'] ?? 15);
     }
 

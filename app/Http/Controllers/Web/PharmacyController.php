@@ -4,19 +4,24 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pharmacy;
+use App\Services\ArabicTextShaper;
 use App\Services\PharmacyService;
+use App\Services\PharmacyReportService;
 use App\Services\ProvinceService;
 use App\Services\SupplierService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
 
 class PharmacyController extends Controller
 {
     public function __construct(
         private PharmacyService $service,
+        private PharmacyReportService $reportService,
         private ProvinceService $provinces,
         private SupplierService $suppliers,
+        private ArabicTextShaper $arabicShaper,
     ) {}
 
     public function index(Request $request): View
@@ -115,5 +120,14 @@ class PharmacyController extends Controller
         }
 
         return view('pharmacies.show', compact('pharmacy', 'maskSensitiveData', 'salesByProduct'));
+    }
+
+    public function report(Pharmacy $pharmacy): Response
+    {
+        $data = $this->reportService->getPharmacyReportData($pharmacy);
+
+        $filename = 'pharmacy-report-' . $pharmacy->id . '-' . now()->format('Y-m-d-H-i-s') . '.pdf';
+
+        return $this->arabicShaper->downloadPdfView('reports.pdf.pharmacy', $data, $filename);
     }
 }

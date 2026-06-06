@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Services\ArabicTextShaper;
 use App\Services\DashboardService;
 use App\Services\CompanyService;
 use App\Services\ProvinceService;
@@ -10,7 +11,6 @@ use App\Services\SupplierService;
 use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
-use PDF;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
@@ -21,6 +21,7 @@ class ReportController extends Controller
         private ProvinceService $provinceService,
         private SupplierService $supplierService,
         private ReportService $reportService,
+        private ArabicTextShaper $arabicShaper,
     ) {}
 
     public function index(Request $request): View
@@ -153,16 +154,14 @@ class ReportController extends Controller
 
         $sales = $this->reportService->salesReport($user, $filters);
 
-        $pdf = PDF::loadView('reports.pdf.sales', [
+        return $this->arabicShaper->downloadPdfView('reports.pdf.sales', [
             'sales' => $sales,
             'filters' => [
                 'from' => $from,
                 'to' => $to,
                 'supplier_id' => $supplierId,
             ],
-        ]);
-
-        return $pdf->download('sales-report-'.now()->format('Y-m-d').'.pdf');
+        ], 'sales-report-'.now()->format('Y-m-d').'.pdf');
     }
 
     public function exportProductsReport(Request $request)
@@ -187,7 +186,7 @@ class ReportController extends Controller
             'supplier_id' => $supplierId,
         ]);
 
-        $pdf = PDF::loadView('reports.pdf.products', [
+        return $this->arabicShaper->downloadPdfView('reports.pdf.products', [
             'top_products' => $productsReport['top'],
             'bottom_products' => $productsReport['bottom'],
             'by_company' => $productsReport['by_company'],
@@ -198,9 +197,7 @@ class ReportController extends Controller
                 'company_id' => $companyId,
                 'supplier_id' => $supplierId,
             ],
-        ]);
-
-        return $pdf->download('products-report-'.now()->format('Y-m-d').'.pdf');
+        ], 'products-report-'.now()->format('Y-m-d-H-i-s').'.pdf');
     }
 
     public function exportSalesExcel(Request $request): StreamedResponse

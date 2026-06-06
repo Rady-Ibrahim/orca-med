@@ -56,7 +56,7 @@ class DashboardService
         $productsQuery = Product::query();
         $this->scopeProducts($productsQuery, $user);
         if ($supplierId) {
-            $productsQuery->whereHas('sales', fn ($q) => $q->where('supplier_id', $supplierId));
+            $productsQuery->whereHas('sales', fn($q) => $q->where('supplier_id', $supplierId));
         }
 
         // Admin can filter products by company
@@ -85,6 +85,7 @@ class DashboardService
                 ],
                 'charts' => $hasAnalyticsAccess ? [
                     'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                    'sales_by_pharmacy' => $this->salesByPharmacy($user, $from, $to, 10, $filters),
                     'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
                     'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
                     'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
@@ -108,6 +109,7 @@ class DashboardService
                 ],
                 'charts' => $hasAnalyticsAccess ? [
                     'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                    'sales_by_pharmacy' => $this->salesByPharmacy($user, $from, $to, 10, $filters),
                     'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
                     'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
                     'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
@@ -138,6 +140,7 @@ class DashboardService
             ],
             'charts' => [
                 'sales_by_province' => $this->salesByProvince($user, $from, $to, $filters),
+                'sales_by_pharmacy' => $this->salesByPharmacy($user, $from, $to, 10, $filters),
                 'top_suppliers' => $this->topSuppliers($user, $from, $to, 10, $filters),
                 'top_products' => $this->topProducts($user, $from, $to, $productLimit, $filters),
                 'bottom_products' => $this->bottomProducts($user, $from, $to, $productLimit, $filters),
@@ -174,9 +177,50 @@ class DashboardService
             });
         }
 
-        return $query->get()->map(fn ($row) => [
+        return $query->get()->map(fn($row) => [
             'label' => $row->label,
             'value' => (int) $row->value,
+        ])->all();
+    }
+
+    /**
+     * @return list<array{label: string, value: int, revenue: float}>
+     */
+    private function salesByPharmacy(User $user, ?string $from, ?string $to, ?int $limit = 10, array $filters = []): array
+    {
+        $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
+
+        $query = Sale::query()
+            ->join('pharmacies', 'sales.pharmacy_id', '=', 'pharmacies.id')
+            ->select(
+                'pharmacies.name as label',
+                DB::raw('COUNT(*) as sales_count'),
+                DB::raw('SUM(sales.quantity) as value'),
+                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)) as revenue')
+            )
+            ->groupBy('pharmacies.id', 'pharmacies.name')
+            ->orderByDesc('value');
+
+        $this->scopeSales($query, $user);
+        $this->applyDateFilter($query, $from, $to);
+        $this->applySupplierFilter($query, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $query->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        }
+
+        if ($limit) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->map(fn($row) => [
+            'label' => $row->label,
+            'value' => (int) $row->value,
+            'revenue' => round((float) $row->revenue, 2),
         ])->all();
     }
 
@@ -209,7 +253,7 @@ class DashboardService
             });
         }
 
-        return $query->get()->map(fn ($row) => [
+        return $query->get()->map(fn($row) => [
             'label' => $row->label,
             'value' => (int) $row->value,
         ])->all();
@@ -278,7 +322,7 @@ class DashboardService
             $query->limit((int) $limit);
         }
 
-        return $query->get()->map(fn ($row) => [
+        return $query->get()->map(fn($row) => [
             'label' => $row->label,
             'code' => $row->code,
             'value' => (int) $row->value,
@@ -311,7 +355,7 @@ class DashboardService
             });
         }
 
-        return $query->get()->map(fn ($row) => [
+        return $query->get()->map(fn($row) => [
             'label' => (string) $row->label,
             'value' => (int) $row->value,
         ])->all();
@@ -329,7 +373,7 @@ class DashboardService
 
         $this->scopeProducts($query, $user);
 
-        return $query->get()->map(fn ($row) => [
+        return $query->get()->map(fn($row) => [
             'label' => $row->label,
             'value' => (int) $row->value,
         ])->all();
@@ -347,7 +391,7 @@ class DashboardService
             ->select('companies.name as label', DB::raw('COUNT(DISTINCT products.id) as value'))
             ->groupBy('companies.id', 'companies.name')
             ->get()
-            ->map(fn ($row) => [
+            ->map(fn($row) => [
                 'label' => $row->label,
                 'value' => (int) $row->value,
             ])->all();
