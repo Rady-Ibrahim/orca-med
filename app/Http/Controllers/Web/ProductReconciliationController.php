@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Jobs\ProcessSaleImportJob;
 use App\Models\UploadBatch;
 use App\Services\ProductSimilarityService;
 use App\Services\UploadBatchService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 
 class ProductReconciliationController extends Controller
@@ -22,13 +24,6 @@ class ProductReconciliationController extends Controller
     public function index(Request $request)
     {
         $batchId = (int) $request->query('batch');
-
-        // Clear session if no batch parameter provided (fresh page load)
-        if ($batchId === 0) {
-            Session::forget('product_similarities');
-            Session::forget('reconciliation_company_id');
-            Session::forget('reconciliation_upload_batch_id');
-        }
 
         // If batch parameter is provided, always load from batch (ignore session)
         if ($batchId > 0) {
@@ -52,56 +47,114 @@ class ProductReconciliationController extends Controller
             }
 
             $errors = $batch->errors;
+            $similarities = [];
 
             if ($errors->isEmpty()) {
-                return redirect()
-                    ->route('imports.show', $batch->id)
-                    ->with('error', 'لا توجد أخطاء تصحيح منتجات لهذه الرفعة.');
-            }
+                $sessionSimilarities = Session::get('product_similarities', []);
+                $sessionBatchId = Session::get('reconciliation_upload_batch_id');
 
-            $candidateIds = collect();
+                if ($sessionBatchId === $batch->id && ! empty($sessionSimilarities)) {
+                    $similarities = collect($sessionSimilarities)
+                        ->map(function ($item) {
+                            if (! isset($item['row_number'])) {
+                                if (! empty($item['rows']) && is_array($item['rows'])) {
+                                    $item['row_number'] = $item['rows'][0];
+                                } else {
+                                    $item['row_number'] = null;
+                                }
+                            }
 
-            foreach ($errors as $error) {
-                $candidates = collect($error->row_data['candidates'] ?? [])
-                    ->pluck('product_id')
-                    ->filter();
+                            if (! isset($item['count'])) {
+                                $item['count'] = ! empty($item['rows']) && is_array($item['rows'])
+                                    ? count($item['rows'])
+                                    : 1;
+                            }
 
-                $candidateIds = $candidateIds->merge($candidates);
-            }
-
-            $candidateProducts = Product::whereIn('id', $candidateIds->unique()->all())
-                ->get()
-                ->keyBy('id');
-
-            $grouped = [];
-
-            foreach ($errors as $error) {
-                $rawProductName = $error->row_data['raw']['product_name'] ?? null;
-
-                if (! $rawProductName) {
-                    continue;
+                            return $item;
+                        })
+                        ->values()
+                        ->all();
+                } else {
+                    return redirect()
+                        ->route('imports.show', $batch->id)
+                        ->with('error', 'لا توجد أخطاء تصحيح منتجات لهذه الرفعة.');
                 }
+            }
 
-                $candidates = [];
-                foreach ($error->row_data['candidates'] ?? [] as $candidate) {
-                    $productId = $candidate['product_id'] ?? null;
-                    if ($productId && $candidateProducts->has($productId)) {
-                        $candidates[] = [
-                            'product' => $candidateProducts->get($productId),
-                            'similarity' => ($candidate['similarity'] ?? 0) / 100,
+            if (empty($similarities)) {
+                $grouped = [];
+
+                foreach ($errors as $error) {
+                    $rawProductName = $error->row_data['raw']['product_name'] ?? null;
+
+                    if (! $rawProductName) {
+                        continue;
+                    }
+
+                    if (! isset($grouped[$rawProductName])) {
+                        $grouped[$rawProductName] = [
+                            'original' => $rawProductName,
+                            'rows' => [],
+                            'count' => 0,
+                            'candidate_data' => [],
                         ];
+                    }
+
+                    $grouped[$rawProductName]['count']++;
+                    $grouped[$rawProductName]['rows'][] = $error->row_number;
+
+                    foreach ($error->row_data['candidates'] ?? [] as $candidate) {
+                        $productId = $candidate['product_id'] ?? null;
+                        $similarity = $candidate['similarity'] ?? 0;
+
+                        if (! $productId) {
+                            continue;
+                        }
+
+                        if (
+                            ! isset($grouped[$rawProductName]['candidate_data'][$productId])
+                            || $similarity > $grouped[$rawProductName]['candidate_data'][$productId]['similarity']
+                        ) {
+                            $grouped[$rawProductName]['candidate_data'][$productId] = [
+                                'similarity' => $similarity,
+                            ];
+                        }
                     }
                 }
 
-                // Add each error row separately (not grouped)
-                $grouped[] = [
-                    'original' => $rawProductName,
-                    'row_number' => $error->row_number,
-                    'similar' => $candidates,
-                ];
+                $candidateIds = collect();
+                foreach ($grouped as $item) {
+                    $candidateIds = $candidateIds->merge(array_keys($item['candidate_data']));
+                }
+
+                $candidateProducts = Product::whereIn('id', $candidateIds->unique()->all())
+                    ->get()
+                    ->keyBy('id');
+
+                $groupedResults = [];
+                foreach ($grouped as $item) {
+                    $similar = [];
+                    foreach ($item['candidate_data'] as $productId => $candidateInfo) {
+                        if ($candidateProducts->has($productId)) {
+                            $similar[] = [
+                                'product' => $candidateProducts->get($productId),
+                                'similarity' => $candidateInfo['similarity'] / 100,
+                            ];
+                        }
+                    }
+
+                    $groupedResults[] = [
+                        'original' => $item['original'],
+                        'rows' => array_unique($item['rows']),
+                        'count' => $item['count'],
+                        'row_number' => reset($item['rows']),
+                        'similar' => $similar,
+                    ];
+                }
+
+                $similarities = $groupedResults;
             }
 
-            $similarities = $grouped;
             $companyId = $batch->company_id;
             $uploadBatchId = $batch->id;
 
@@ -111,7 +164,21 @@ class ProductReconciliationController extends Controller
             Session::put('reconciliation_upload_batch_id', $uploadBatchId);
         } else {
             // Fallback to session if no batch parameter
-            $similarities = Session::get('product_similarities', []);
+            $similarities = collect(Session::get('product_similarities', []))
+                ->map(function ($item) {
+                    if (! isset($item['row_number'])) {
+                        if (! empty($item['rows']) && is_array($item['rows'])) {
+                            $item['row_number'] = $item['rows'][0];
+                        } else {
+                            $item['row_number'] = null;
+                        }
+                    }
+
+                    return $item;
+                })
+                ->values()
+                ->all();
+
             $companyId = Session::get('reconciliation_company_id');
             $uploadBatchId = Session::get('reconciliation_upload_batch_id');
         }
@@ -168,48 +235,58 @@ class ProductReconciliationController extends Controller
         $companyId = $batch->company_id;
 
         $uploadBatchService = app(\App\Services\UploadBatchService::class);
-        $user = auth()->user();
+        $user = $request->user();
+
+        $ambiguousErrors = $batch->errors()
+            ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+            ->get()
+            ->groupBy(fn($error) => $error->row_data['raw']['product_name'] ?? '');
 
         foreach ($choices as $choice) {
             $originalName = $choice['original'];
             $createNew = ! empty($choice['create_new']);
             $selectedProductId = $choice['selected_product_id'] ?? null;
 
-            // Get all error rows for this product name
-            $errors = $batch->errors()
-                ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
-                ->where('row_data->raw->product_name', $originalName)
-                ->get();
+            $errors = $ambiguousErrors->get($originalName, collect());
 
             foreach ($errors as $error) {
                 if ($createNew) {
-                    // Create new product
                     $data = [
                         'row_number' => $error->row_number,
                         'action' => 'create_new',
                     ];
                 } elseif ($selectedProductId) {
-                    // Map to existing product
                     $data = [
                         'row_number' => $error->row_number,
                         'action' => 'map_to_existing',
                         'product_id' => $selectedProductId,
                     ];
                 } else {
-                    // Skip if no action selected
                     continue;
                 }
 
                 try {
                     $uploadBatchService->resolveAmbiguousProduct($batch, $data, $user);
                 } catch (\Illuminate\Validation\ValidationException $e) {
-                    // Log error but continue processing other rows
-                    \Log::error('Failed to resolve ambiguous product', [
+                    Log::error('Failed to resolve ambiguous product', [
                         'row_number' => $error->row_number,
                         'error' => $e->getMessage(),
                     ]);
                 }
             }
+        }
+
+        $remainingErrors = $batch->errors()
+            ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+            ->exists();
+
+        if (! $remainingErrors) {
+            ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
+            $message = 'تم حفظ اختيارات التصحيح وبدء معالجة الملف.';
+            $redirectRoute = route('imports.index');
+        } else {
+            $message = 'تم حفظ اختيارات التصحيح بنجاح. ما زالت هناك صفوف تحتاج تصحيح.';
+            $redirectRoute = route('imports.show', $batch->id);
         }
 
         // Clear reconciliation data from session
@@ -218,9 +295,8 @@ class ProductReconciliationController extends Controller
         Session::forget('reconciliation_company_id');
         Session::forget('reconciliation_upload_batch_id');
 
-        return redirect()
-            ->route('imports.show', $batch->id)
-            ->with('success', 'تم حفظ اختيارات التصحيح بنجاح.');
+        return redirect($redirectRoute)
+            ->with('success', $message);
     }
 
     /**
@@ -245,7 +321,7 @@ class ProductReconciliationController extends Controller
         );
 
         return response()->json([
-            'results' => $similar->map(fn ($item) => [
+            'results' => $similar->map(fn($item) => [
                 'id' => $item['product']->id,
                 'name' => $item['product']->name,
                 'code' => $item['product']->code,

@@ -109,6 +109,9 @@
         <h3 class="text-sm font-semibold text-slate-700 mb-4">المبيعات حسب المحافظة</h3>
         <canvas id="chartProvinces" height="220"></canvas>
     </div>
+</div>
+
+<div class="grid grid-cols-1 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">أعلى المنتجات مبيعاً</h3>
         <canvas id="chartTopProducts" height="220"></canvas>

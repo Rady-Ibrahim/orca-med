@@ -14,6 +14,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use App\Enums\UploadBatchStatus;
 
 class UploadBatchService
 {
@@ -28,7 +29,7 @@ class UploadBatchService
         $query = UploadBatch::query()
             ->with(['uploader', 'warehouse'])
             ->withCount('errors')
-            ->when($user->isWarehouseUser(), fn ($q) => $q->where('warehouse_id', $user->warehouse_id))
+            ->when($user->isWarehouseUser(), fn($q) => $q->where('warehouse_id', $user->warehouse_id))
             ->orderByDesc('created_at');
 
         return $query->paginate($filters['per_page'] ?? 15);
@@ -134,7 +135,7 @@ class UploadBatchService
             $product = Product::create([
                 'company_id' => $batch->company_id,
                 'upload_batch_id' => $batch->id,
-                'name' => $raw['product_name'] ?? ('منتج جديد '.$batch->id.'-'.$error->row_number),
+                'name' => $raw['product_name'] ?? ('منتج جديد ' . $batch->id . '-' . $error->row_number),
                 'code' => $code,
                 'description' => null,
             ]);
@@ -151,7 +152,7 @@ class UploadBatchService
         $batch->duplicate_count = 0; // Can be calculated if needed
 
         if ($batch->error_count === 0) {
-            $batch->status = \App\Enums\UploadBatchStatus::COMPLETED;
+            $batch->status = UploadBatchStatus::Completed;
         }
 
         $batch->save();

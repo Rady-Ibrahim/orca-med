@@ -30,6 +30,7 @@ class DashboardService
         $from = $filters['from'] ?? null;
         $to = $filters['to'] ?? null;
         $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
         $productLimit = $filters['product_limit'] ?? null;
         $hasAnalyticsAccess = $user->hasAnalyticsAccess();
 
@@ -42,8 +43,14 @@ class DashboardService
         if ($to) {
             $salesQuery->whereDate('sold_at', '<=', $to);
         }
-        if ($supplierId) {
-            $salesQuery->where('supplier_id', $supplierId);
+
+        $this->applySupplierFilter($salesQuery, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $salesQuery->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
         }
 
         $productsQuery = Product::query();
@@ -52,10 +59,13 @@ class DashboardService
             $productsQuery->whereHas('sales', fn ($q) => $q->where('supplier_id', $supplierId));
         }
 
+        // Admin can filter products by company
+        if ($user->isAdmin() && $companyId) {
+            $productsQuery->where('company_id', $companyId);
+        }
+
         // Calculate total revenue using the financial formula
-        $totalRevenue = (clone $salesQuery)->get()->sum(function ($sale) {
-            return $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
-        });
+        $totalRevenue = $this->calculateTotalRevenue($salesQuery);
 
         if ($user->isWarehouseUser() && $user->warehouse_id) {
             $wid = $user->warehouse_id;
@@ -108,11 +118,19 @@ class DashboardService
         }
 
         // Admin: always sees full stats + stats by company
+        // If filters are applied, use filtered counts; otherwise use total counts
+        $hasFilters = $from || $to || $supplierId || $companyId;
         return [
             'totals' => [
-                'provinces' => Province::count(),
-                'suppliers' => Supplier::count(),
-                'pharmacies' => Pharmacy::count(),
+                'provinces' => $hasFilters
+                    ? (clone $salesQuery)->distinct('province_id')->count('province_id')
+                    : Province::count(),
+                'suppliers' => $hasFilters
+                    ? (clone $salesQuery)->distinct('supplier_id')->count('supplier_id')
+                    : Supplier::count(),
+                'pharmacies' => $hasFilters
+                    ? (clone $salesQuery)->distinct('pharmacy_id')->count('pharmacy_id')
+                    : Pharmacy::count(),
                 'products' => (clone $productsQuery)->count(),
                 'sales_count' => (clone $salesQuery)->count(),
                 'quantity_sold' => (int) (clone $salesQuery)->sum('quantity'),
@@ -136,6 +154,7 @@ class DashboardService
     private function salesByProvince(User $user, ?string $from, ?string $to, array $filters = []): array
     {
         $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
 
         $query = Sale::query()
             ->join('provinces', 'sales.province_id', '=', 'provinces.id')
@@ -146,7 +165,14 @@ class DashboardService
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
-        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $this->applySupplierFilter($query, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $query->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        }
 
         return $query->get()->map(fn ($row) => [
             'label' => $row->label,
@@ -160,6 +186,7 @@ class DashboardService
     private function topSuppliers(User $user, ?string $from, ?string $to, ?int $limit = 10, array $filters = []): array
     {
         $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
 
         $query = Sale::query()
             ->join('suppliers', 'sales.supplier_id', '=', 'suppliers.id')
@@ -167,12 +194,19 @@ class DashboardService
             ->groupBy('suppliers.id', 'suppliers.name')
             ->orderByDesc('value');
 
+        if ($limit) {
+            $query->limit($limit);
+        }
+
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
-        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $this->applySupplierFilter($query, $supplierId);
 
-        if (is_numeric($limit)) {
-            $query->limit((int) $limit);
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $query->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
         }
 
         return $query->get()->map(fn ($row) => [
@@ -203,11 +237,20 @@ class DashboardService
     private function rankedProducts(User $user, ?string $from, ?string $to, ?int $limit, string $direction, array $filters = []): array
     {
         $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
 
         $totalVolumeQuery = Sale::query();
         $this->scopeSales($totalVolumeQuery, $user);
         $this->applyDateFilter($totalVolumeQuery, $from, $to);
-        $totalVolumeQuery->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $this->applySupplierFilter($totalVolumeQuery, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $totalVolumeQuery->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        }
+
         $totalVolume = (int) $totalVolumeQuery->sum('quantity');
 
         $query = Sale::query()
@@ -222,7 +265,14 @@ class DashboardService
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
-        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $this->applySupplierFilter($query, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $query->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        }
 
         if (is_numeric($limit)) {
             $query->limit((int) $limit);
@@ -242,6 +292,7 @@ class DashboardService
     private function salesOverTime(User $user, ?string $from, ?string $to, array $filters = []): array
     {
         $supplierId = $filters['supplier_id'] ?? null;
+        $companyId = $filters['company_id'] ?? null;
 
         $query = Sale::query()
             ->select(DB::raw('DATE(sold_at) as label'), DB::raw('SUM(quantity) as value'))
@@ -251,7 +302,14 @@ class DashboardService
 
         $this->scopeSales($query, $user);
         $this->applyDateFilter($query, $from, $to);
-        $query->when($supplierId, fn ($q, $id) => $q->where('sales.supplier_id', $id));
+        $this->applySupplierFilter($query, $supplierId);
+
+        // Admin can filter by company
+        if ($user->isAdmin() && $companyId) {
+            $query->whereHas('uploadBatch', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        }
 
         return $query->get()->map(fn ($row) => [
             'label' => (string) $row->label,
@@ -305,6 +363,18 @@ class DashboardService
         }
     }
 
+    private function applySupplierFilter($query, ?int $supplierId): void
+    {
+        if ($supplierId) {
+            $query->where('sales.supplier_id', $supplierId);
+        }
+    }
+
+    private function calculateTotalRevenue($query): float
+    {
+        return (float) $query->sum(DB::raw('quantity * unit_price * (1 - discount / 100)'));
+    }
+
     /**
      * @return list<array{company_id: int, company_name: string, sales_count: int, quantity_sold: int, total_revenue: float}>
      */
@@ -317,39 +387,21 @@ class DashboardService
                 'companies.id as company_id',
                 'companies.name as company_name',
                 DB::raw('COUNT(*) as sales_count'),
-                DB::raw('SUM(sales.quantity) as quantity_sold')
+                DB::raw('SUM(sales.quantity) as quantity_sold'),
+                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)) as total_revenue')
             )
             ->groupBy('companies.id', 'companies.name')
             ->orderByDesc('quantity_sold');
 
         $this->applyDateFilter($query, $from, $to);
 
-        $results = $query->get();
-
-        return $results->map(function ($row) use ($from, $to) {
-            // Calculate revenue for this company
-            $companySales = Sale::query()
-                ->whereHas('uploadBatch', function ($q) use ($row) {
-                    $q->where('company_id', $row->company_id);
-                });
-
-            if ($from) {
-                $companySales->whereDate('sold_at', '>=', $from);
-            }
-            if ($to) {
-                $companySales->whereDate('sold_at', '<=', $to);
-            }
-
-            $totalRevenue = $companySales->get()->sum(function ($sale) {
-                return $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
-            });
-
+        return $query->get()->map(function ($row) {
             return [
                 'company_id' => $row->company_id,
                 'company_name' => $row->company_name,
                 'sales_count' => (int) $row->sales_count,
                 'quantity_sold' => (int) $row->quantity_sold,
-                'total_revenue' => round($totalRevenue, 2),
+                'total_revenue' => round((float) $row->total_revenue, 2),
             ];
         })->all();
     }

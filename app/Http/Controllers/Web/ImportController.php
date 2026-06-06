@@ -76,13 +76,24 @@ class ImportController extends Controller
                 $batch->company_id
             );
 
+            \Log::info('Similarities check', [
+                'batch_id' => $batch->id,
+                'similarities_count' => count($similarities),
+                'is_empty' => empty($similarities),
+            ]);
+
             if (!empty($similarities)) {
                 // Store similarities in session and redirect to reconciliation page
                 session()->put('product_similarities', $similarities);
                 session()->put('reconciliation_company_id', $batch->company_id);
                 session()->put('reconciliation_upload_batch_id', $batch->id);
 
-                return redirect()->route('products.reconciliation.index')
+                \Log::info('Redirecting to reconciliation page', [
+                    'batch_id' => $batch->id,
+                    'similarities_count' => count($similarities),
+                ]);
+
+                return redirect()->route('products.reconciliation.index', ['batch' => $batch->id])
                     ->with('info', 'تم اكتشاف ' . count($similarities) . ' أسماء متشابهة. يرجى مراجعتها قبل المعالجة.');
             }
         } catch (\Throwable $e) {

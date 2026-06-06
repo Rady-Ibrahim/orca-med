@@ -7,8 +7,11 @@ use App\Services\DashboardService;
 use App\Services\CompanyService;
 use App\Services\ProvinceService;
 use App\Services\SupplierService;
+use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use PDF;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
@@ -17,6 +20,7 @@ class ReportController extends Controller
         private CompanyService $companyService,
         private ProvinceService $provinceService,
         private SupplierService $supplierService,
+        private ReportService $reportService,
     ) {}
 
     public function index(Request $request): View
@@ -33,6 +37,7 @@ class ReportController extends Controller
             'from' => $from,
             'to' => $to,
             'supplier_id' => $supplierId,
+            'company_id' => $companyId,
         ]);
 
         // Load filter options for admin
@@ -132,5 +137,174 @@ class ReportController extends Controller
         ];
     }
 
-    public function exportSales() { abort(501, 'قريباً'); }
+    public function exportSales(Request $request)
+    {
+        $user = auth()->user();
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $supplierId = $request->input('supplier_id');
+
+        $filters = [
+            'from' => $from,
+            'to' => $to,
+            'supplier_id' => $supplierId,
+            'per_page' => 10000,
+        ];
+
+        $sales = $this->reportService->salesReport($user, $filters);
+
+        $pdf = PDF::loadView('reports.pdf.sales', [
+            'sales' => $sales,
+            'filters' => [
+                'from' => $from,
+                'to' => $to,
+                'supplier_id' => $supplierId,
+            ],
+        ]);
+
+        return $pdf->download('sales-report-'.now()->format('Y-m-d').'.pdf');
+    }
+
+    public function exportProductsReport(Request $request)
+    {
+        $user = auth()->user();
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $companyId = $request->input('company_id');
+        $supplierId = $request->input('supplier_id');
+
+        $productsReport = $this->reportService->productsReport($user, [
+            'from' => $from,
+            'to' => $to,
+            'company_id' => $companyId,
+            'supplier_id' => $supplierId,
+            'limit' => null,
+        ]);
+
+        $stats = $this->dashboard->getStats($user, [
+            'from' => $from,
+            'to' => $to,
+            'supplier_id' => $supplierId,
+        ]);
+
+        $pdf = PDF::loadView('reports.pdf.products', [
+            'top_products' => $productsReport['top'],
+            'bottom_products' => $productsReport['bottom'],
+            'by_company' => $productsReport['by_company'],
+            'totals' => $stats['totals'],
+            'filters' => [
+                'from' => $from,
+                'to' => $to,
+                'company_id' => $companyId,
+                'supplier_id' => $supplierId,
+            ],
+        ]);
+
+        return $pdf->download('products-report-'.now()->format('Y-m-d').'.pdf');
+    }
+
+    public function exportSalesExcel(Request $request): StreamedResponse
+    {
+        $user = auth()->user();
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $supplierId = $request->input('supplier_id');
+
+        $filters = [
+            'from' => $from,
+            'to' => $to,
+            'supplier_id' => $supplierId,
+            'per_page' => 10000,
+        ];
+
+        $sales = $this->reportService->salesReport($user, $filters);
+
+        return response()->streamDownload(function () use ($sales) {
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($out, ['التاريخ', 'الصنف', 'الكود', 'الكمية', 'السعر', 'الخصم', 'الإجمالي', 'المحافظة', 'الصيدلية']);
+
+            foreach ($sales as $sale) {
+                $total = $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
+                fputcsv($out, [
+                    $sale->sold_at?->format('Y-m-d') ?? '-',
+                    $sale->product?->name ?? '-',
+                    $sale->product?->code ?? '-',
+                    $sale->quantity,
+                    $sale->unit_price,
+                    $sale->discount . '%',
+                    round($total, 2),
+                    $sale->province?->name ?? '-',
+                    $sale->pharmacy?->name ?? '-',
+                ]);
+            }
+
+            fclose($out);
+        }, 'sales-report-'.now()->format('Y-m-d').'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function exportProductsExcel(Request $request): StreamedResponse
+    {
+        $user = auth()->user();
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $companyId = $request->input('company_id');
+        $supplierId = $request->input('supplier_id');
+
+        $productsReport = $this->reportService->productsReport($user, [
+            'from' => $from,
+            'to' => $to,
+            'company_id' => $companyId,
+            'supplier_id' => $supplierId,
+            'limit' => null,
+        ]);
+
+        return response()->streamDownload(function () use ($productsReport) {
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+
+            fputcsv($out, ['القسم', 'الصنف', 'الكود', 'الكمية', 'عدد المبيعات', 'النسبة المئوية']);
+            fputcsv($out, ['أعلى المنتجات مبيعاً']);
+            foreach ($productsReport['top'] as $product) {
+                fputcsv($out, [
+                    'أعلى المنتجات',
+                    $product->name,
+                    $product->code ?? '-',
+                    $product->total_quantity,
+                    $product->sales_count,
+                    $product->percentage . '%',
+                ]);
+            }
+
+            fputcsv($out, []);
+            fputcsv($out, ['أقل المنتجات مبيعاً']);
+            foreach ($productsReport['bottom'] as $product) {
+                fputcsv($out, [
+                    'أقل المنتجات',
+                    $product->name,
+                    $product->code ?? '-',
+                    $product->total_quantity,
+                    $product->sales_count,
+                    $product->percentage . '%',
+                ]);
+            }
+
+            fputcsv($out, []);
+            fputcsv($out, ['المنتجات حسب الشركة']);
+            fputcsv($out, ['الشركة', 'عدد المنتجات', 'إجمالي المبيعات']);
+            foreach ($productsReport['by_company'] as $company) {
+                fputcsv($out, [
+                    $company->company_name,
+                    $company->products_count,
+                    $company->total_sold,
+                ]);
+            }
+
+            fclose($out);
+        }, 'products-report-'.now()->format('Y-m-d').'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
 }

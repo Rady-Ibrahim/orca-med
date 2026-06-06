@@ -33,11 +33,14 @@
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="grid grid-cols-1 gap-4">
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">أعلى 10 منتجات</h3>
         <canvas id="chartTopProducts" height="220"></canvas>
     </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">أعلى الموردين</h3>
         <canvas id="chartSuppliers" height="220"></canvas>

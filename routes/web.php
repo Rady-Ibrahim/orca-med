@@ -48,6 +48,9 @@ Route::middleware('auth')->group(function () {
         Route::resource('sales',    \App\Http\Controllers\Web\SalesController::class)->only(['index','show']);
         Route::get('/reports',      [\App\Http\Controllers\Web\ReportController::class,  'index'])->name('reports.index');
         Route::get('/reports/sales/export', [\App\Http\Controllers\Web\ReportController::class, 'exportSales'])->name('reports.export-sales');
+        Route::get('/reports/sales/excel', [\App\Http\Controllers\Web\ReportController::class, 'exportSalesExcel'])->name('reports.export-sales-excel');
+        Route::get('/reports/products/export', [\App\Http\Controllers\Web\ReportController::class, 'exportProductsReport'])->name('reports.export-products');
+        Route::get('/reports/products/excel', [\App\Http\Controllers\Web\ReportController::class, 'exportProductsExcel'])->name('reports.export-products-excel');
         Route::get('/search',       [\App\Http\Controllers\Web\SearchController::class,  'index'])->name('search.index');
         Route::get('/activation',  [\App\Http\Controllers\Web\ActivationController::class, 'index'])->name('activation.index');
         Route::post('/activation', [\App\Http\Controllers\Web\ActivationController::class, 'activate'])->name('activation.activate');
