@@ -60,4 +60,17 @@ class Sale extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    /** Revenue = quantity × unit_price × (1 − discount%). */
+    public function lineRevenue(): float
+    {
+        return (float) $this->quantity
+            * (float) ($this->unit_price ?? 0)
+            * (1 - (float) ($this->discount ?? 0) / 100);
+    }
+
+    public static function revenueSql(string $table = 'sales'): string
+    {
+        return "{$table}.quantity * {$table}.unit_price * (1 - COALESCE({$table}.discount, 0) / 100)";
+    }
 }

@@ -73,7 +73,9 @@
                             <tr class="hover:bg-slate-50">
                                 <td class="px-4 py-3 text-sm text-slate-700">{{ $product->code }}</td>
                                 <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $product->name }}</td>
-                                <td class="px-4 py-3 text-sm text-slate-700">{{ number_format($product->price, 2) }}</td>
+                                <td class="px-4 py-3 text-sm text-slate-700">
+                                    {{ $product->effectivePrice() !== null ? number_format($product->effectivePrice(), 2) : '-' }}
+                                </td>
                                 <td class="px-4 py-3 text-sm text-slate-700">{{ $product->company?->name ?? '-' }}</td>
                                 <td class="px-4 py-3">
                                     <a href="{{ route('products.edit', $product) }}"

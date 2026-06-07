@@ -47,4 +47,18 @@ class Product extends Model
     {
         return $this->hasMany(PharmacyAccessRequest::class);
     }
+
+    /** السعر المعروض: السعر المسجّل أو متوسط سعر المبيعات. */
+    public function effectivePrice(): ?float
+    {
+        if ((float) $this->price > 0) {
+            return (float) $this->price;
+        }
+
+        if ($this->sales_avg_unit_price !== null && (float) $this->sales_avg_unit_price > 0) {
+            return (float) $this->sales_avg_unit_price;
+        }
+
+        return null;
+    }
 }

@@ -132,12 +132,14 @@ class UploadBatchService
                 $code = strtoupper(substr(md5(uniqid('', true)), 0, 8));
             }
 
+            $unitPrice = isset($mapped['unit_price']) ? (float) $mapped['unit_price'] : 0;
+
             $product = Product::create([
                 'company_id' => $batch->company_id,
                 'upload_batch_id' => $batch->id,
                 'name' => $raw['product_name'] ?? ('منتج جديد ' . $batch->id . '-' . $error->row_number),
                 'code' => $code,
-                'description' => null,
+                'price' => $unitPrice > 0 ? $unitPrice : 0,
             ]);
 
             $sale = $this->createSaleFromRow($batch, $mapped, $product->id);

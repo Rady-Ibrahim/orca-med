@@ -15,7 +15,8 @@ class ProductService
     {
         $query = Product::query()
             ->with('company')
-            ->withCount('sales');
+            ->withCount('sales')
+            ->withAvg(['sales' => fn ($q) => $q->where('unit_price', '>', 0)], 'unit_price');
 
         $this->scopeProducts($query, $user);
 

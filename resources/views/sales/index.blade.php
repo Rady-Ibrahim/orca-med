@@ -106,7 +106,7 @@
                 <tbody class="divide-y divide-slate-200">
                     @forelse($sales as $sale)
                         @php
-                            $total = $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
+                            $total = $sale->lineRevenue();
                         @endphp
                         <tr class="hover:bg-slate-50">
                             <td class="px-4 py-3 text-sm text-slate-700">{{ $sale->pharmacy?->name ?? '-' }}</td>
@@ -127,6 +127,21 @@
                         </tr>
                     @endforelse
                 </tbody>
+                @if(($tableTotals['count'] ?? 0) > 0)
+                    <tfoot class="bg-slate-100 font-semibold">
+                        <tr>
+                            <td class="px-4 py-3 text-sm text-slate-800" colspan="2">
+                                الإجمالي ({{ number_format($tableTotals['count']) }} سجل)
+                            </td>
+                            <td class="px-4 py-3 text-sm text-slate-800">{{ number_format($tableTotals['quantity']) }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-500">—</td>
+                            <td class="px-4 py-3 text-sm text-slate-800">{{ number_format($tableTotals['gross'], 2) }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-500">—</td>
+                            <td class="px-4 py-3 text-sm text-emerald-700">{{ number_format($tableTotals['revenue'], 2) }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-500" colspan="2">—</td>
+                        </tr>
+                    </tfoot>
+                @endif
             </table>
         </div>
 

@@ -197,7 +197,7 @@ class DashboardService
                 'pharmacies.name as label',
                 DB::raw('COUNT(*) as sales_count'),
                 DB::raw('SUM(sales.quantity) as value'),
-                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)) as revenue')
+                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - COALESCE(sales.discount, 0) / 100)) as revenue')
             )
             ->groupBy('pharmacies.id', 'pharmacies.name')
             ->orderByDesc('value');
@@ -416,7 +416,7 @@ class DashboardService
 
     private function calculateTotalRevenue($query): float
     {
-        return (float) $query->sum(DB::raw('quantity * unit_price * (1 - discount / 100)'));
+        return (float) $query->sum(DB::raw('quantity * unit_price * (1 - COALESCE(discount, 0) / 100)'));
     }
 
     /**
@@ -432,7 +432,7 @@ class DashboardService
                 'companies.name as company_name',
                 DB::raw('COUNT(*) as sales_count'),
                 DB::raw('SUM(sales.quantity) as quantity_sold'),
-                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - sales.discount / 100)) as total_revenue')
+                DB::raw('SUM(sales.quantity * sales.unit_price * (1 - COALESCE(sales.discount, 0) / 100)) as total_revenue')
             )
             ->groupBy('companies.id', 'companies.name')
             ->orderByDesc('quantity_sold');

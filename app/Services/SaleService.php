@@ -29,8 +29,11 @@ class SaleService
             ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('sold_at', '>=', $from))
             ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('sold_at', '<=', $to))
             ->when($filters['search'] ?? null, function ($q, $search) {
-                $q->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%")
-                    ->orWhere('code', 'like', "%{$search}%"));
+                $q->where(function ($sub) use ($search) {
+                    $sub->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%"))
+                        ->orWhereHas('pharmacy', fn ($phq) => $phq->where('name', 'like', "%{$search}%"));
+                });
             })
             ->orderByDesc('sold_at')
             ->paginate($filters['per_page'] ?? 15);

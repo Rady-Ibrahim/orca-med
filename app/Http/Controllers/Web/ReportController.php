@@ -101,12 +101,12 @@ class ReportController extends Controller
 
         $sales = $query->get();
 
-        $totalRevenue = $sales->sum(function ($sale) {
-            return $sale->quantity * $sale->unit_price * (1 - $sale->discount / 100);
-        });
+        $totalRevenue = $sales->sum(fn ($sale) => $sale->lineRevenue());
 
         $totalDiscount = $sales->sum(function ($sale) {
-            return $sale->quantity * $sale->unit_price * ($sale->discount / 100);
+            $gross = (float) $sale->quantity * (float) ($sale->unit_price ?? 0);
+
+            return $gross * ((float) ($sale->discount ?? 0) / 100);
         });
 
         $avgDiscount = $sales->isNotEmpty() 
@@ -116,7 +116,7 @@ class ReportController extends Controller
         $topPharmacy = $sales->groupBy('pharmacy_id')
             ->map(fn ($group) => [
                 'name' => $group->first()->pharmacy?->name ?? 'غير معروف',
-                'revenue' => $group->sum(fn ($s) => $s->quantity * $s->unit_price * (1 - $s->discount / 100)),
+                'revenue' => $group->sum(fn ($s) => $s->lineRevenue()),
                 'count' => $group->count(),
             ])
             ->sortByDesc('revenue')
@@ -129,7 +129,7 @@ class ReportController extends Controller
             'revenue_per_product' => $sales->groupBy('product_id')
                 ->map(fn ($group) => [
                     'name' => $group->first()->product?->name ?? 'غير معروف',
-                    'revenue' => $group->sum(fn ($s) => $s->quantity * $s->unit_price * (1 - $s->discount / 100)),
+                    'revenue' => $group->sum(fn ($s) => $s->lineRevenue()),
                     'quantity' => $group->sum('quantity'),
                 ])
                 ->sortByDesc('revenue')

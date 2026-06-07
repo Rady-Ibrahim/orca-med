@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\ProductAlias;
 use App\Jobs\ProcessSaleImportJob;
 use App\Models\UploadBatch;
 use App\Services\ProductSimilarityService;
@@ -238,55 +239,65 @@ class ProductReconciliationController extends Controller
         $user = $request->user();
 
         $ambiguousErrors = $batch->errors()
-            ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+            ->where('error_type', UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
             ->get()
-            ->groupBy(fn($error) => $error->row_data['raw']['product_name'] ?? '');
+            ->groupBy(fn ($error) => $error->row_data['raw']['product_name'] ?? '');
 
-        foreach ($choices as $choice) {
-            $originalName = $choice['original'];
-            $createNew = ! empty($choice['create_new']);
-            $selectedProductId = $choice['selected_product_id'] ?? null;
+        $hadDbErrors = $ambiguousErrors->isNotEmpty();
 
-            $errors = $ambiguousErrors->get($originalName, collect());
+        if ($hadDbErrors) {
+            foreach ($choices as $choice) {
+                $originalName = $choice['original'];
+                $createNew = ! empty($choice['create_new']);
+                $selectedProductId = $choice['selected_product_id'] ?? null;
 
-            foreach ($errors as $error) {
-                if ($createNew) {
-                    $data = [
-                        'row_number' => $error->row_number,
-                        'action' => 'create_new',
-                    ];
-                } elseif ($selectedProductId) {
-                    $data = [
-                        'row_number' => $error->row_number,
-                        'action' => 'map_to_existing',
-                        'product_id' => $selectedProductId,
-                    ];
-                } else {
-                    continue;
-                }
+                $errors = $ambiguousErrors->get($originalName, collect());
 
-                try {
-                    $uploadBatchService->resolveAmbiguousProduct($batch, $data, $user);
-                } catch (\Illuminate\Validation\ValidationException $e) {
-                    Log::error('Failed to resolve ambiguous product', [
-                        'row_number' => $error->row_number,
-                        'error' => $e->getMessage(),
-                    ]);
+                foreach ($errors as $error) {
+                    if ($createNew) {
+                        $data = [
+                            'row_number' => $error->row_number,
+                            'action' => 'create_new',
+                        ];
+                    } elseif ($selectedProductId) {
+                        $data = [
+                            'row_number' => $error->row_number,
+                            'action' => 'map_to_existing',
+                            'product_id' => $selectedProductId,
+                        ];
+                    } else {
+                        continue;
+                    }
+
+                    try {
+                        $uploadBatchService->resolveAmbiguousProduct($batch, $data, $user);
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        Log::error('Failed to resolve ambiguous product', [
+                            'row_number' => $error->row_number,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
             }
+        } else {
+            $this->savePreImportAliases($choices, $companyId);
         }
 
         $remainingErrors = $batch->errors()
-            ->where('error_type', \App\Services\UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
+            ->where('error_type', UploadBatchService::ERROR_AMBIGUOUS_PRODUCT)
             ->exists();
 
-        if (! $remainingErrors) {
+        if ($hadDbErrors) {
+            $message = $remainingErrors
+                ? 'تم حفظ اختيارات التصحيح. ما زالت هناك صفوف تحتاج تصحيح.'
+                : 'تم حفظ اختيارات التصحيح بنجاح.';
+            $redirectRoute = $remainingErrors
+                ? route('products.reconciliation.index', ['batch' => $batch->id])
+                : route('imports.index');
+        } else {
             ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
             $message = 'تم حفظ اختيارات التصحيح وبدء معالجة الملف.';
             $redirectRoute = route('imports.index');
-        } else {
-            $message = 'تم حفظ اختيارات التصحيح بنجاح. ما زالت هناك صفوف تحتاج تصحيح.';
-            $redirectRoute = route('imports.show', $batch->id);
         }
 
         // Clear reconciliation data from session
@@ -353,6 +364,32 @@ class ProductReconciliationController extends Controller
     /**
      * Process the import file after reconciliation
      */
+    private function savePreImportAliases(array $choices, int $companyId): void
+    {
+        foreach ($choices as $choice) {
+            if (! empty($choice['create_new'])) {
+                continue;
+            }
+
+            $originalName = trim((string) ($choice['original'] ?? ''));
+            $productId = $choice['selected_product_id'] ?? null;
+
+            if ($originalName === '' || ! $productId) {
+                continue;
+            }
+
+            $product = Product::find($productId);
+            if (! $product || $product->company_id !== $companyId) {
+                continue;
+            }
+
+            ProductAlias::updateOrCreate(
+                ['alias_name' => $originalName],
+                ['product_id' => $product->id]
+            );
+        }
+    }
+
     public function processAfterReconciliation(Request $request)
     {
         $choices = session('reconciliation_choices', []);

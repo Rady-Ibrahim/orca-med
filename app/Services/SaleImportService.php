@@ -296,7 +296,14 @@ class SaleImportService
             $mapping[$canonical] = $index;
         }
 
-        // Return mapping for available fields only - make all fields optional
+        foreach (config('sale_import.required_fields', []) as $required) {
+            if (! isset($mapping[$required])) {
+                \Log::warning('Required import column missing', ['field' => $required, 'header' => $headerRow, 'mapping' => $mapping]);
+
+                return null;
+            }
+        }
+
         return $mapping;
     }
 
@@ -431,7 +438,7 @@ class SaleImportService
                         ]);
                     } elseif ($matchResult['type'] === 'strength_variant') {
                         // Rule B: Different strength - auto-create as new variant
-                        $product = $this->createProductForBatch($batch, $productName);
+                        $product = $this->createProductForBatch($batch, $productName, $unitPrice);
                         $productId = $product->id;
                         $productsCache[$productName] = $productId;
                         $productsByName[$productName] = $productId;
@@ -444,7 +451,7 @@ class SaleImportService
                         ]);
                     } else {
                         // Type 'new': No match found, create new product
-                        $product = $this->createProductForBatch($batch, $productName);
+                        $product = $this->createProductForBatch($batch, $productName, $unitPrice);
                         $productId = $product->id;
                         $productsCache[$productName] = $productId;
                         $productsByName[$productName] = $productId;
@@ -621,7 +628,12 @@ class SaleImportService
 
     private function normalizeHeader(string $header): string
     {
-        return Str::lower(trim(str_replace([' ', '-'], '_', $header)));
+        $header = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{FEFF}]/u', ' ', $header);
+        $header = trim($header);
+        $header = preg_replace('/[\s\-]+/u', '_', $header);
+        $header = trim($header, '_-');
+
+        return Str::lower($header);
     }
 
     /**
@@ -667,14 +679,14 @@ class SaleImportService
         return hash('sha256', "{$productId}|{$pharmacyId}|{$soldAt}");
     }
 
-    private function createProductForBatch(UploadBatch $batch, string $productName): Product
+    private function createProductForBatch(UploadBatch $batch, string $productName, ?float $unitPrice = null): Product
     {
         return Product::create([
             'company_id' => $batch->company_id,
             'upload_batch_id' => $batch->id,
             'name' => $productName,
             'code' => strtoupper(substr(md5($batch->company_id . $productName), 0, 8)),
-            'description' => null,
+            'price' => $unitPrice > 0 ? $unitPrice : 0,
         ]);
     }
 
