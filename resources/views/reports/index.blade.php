@@ -104,9 +104,9 @@
     @if ($has_analytics_access || auth()->user()->isAdmin())
         {{-- Financial KPIs --}}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <x-kpi-card label="إجمالي الإيرادات" :value="number_format($totals['total_revenue'] ?? 0, 2) . ' ج.م'" color="emerald" icon="💰" />
-            <x-kpi-card label="إجمالي الخصومات" :value="number_format($additional_kpis['total_discount'] ?? 0, 2) . ' ج.م'" color="red" icon="📉" />
-            <x-kpi-card label="متوسط الخصم" :value="number_format($additional_kpis['avg_discount_percent'] ?? 0, 2) . '%'" color="amber" icon="📊" />
+            <x-kpi-card label="إجمالي الإيرادات" :value="$totals['total_revenue'] ?? 0" suffix="ج.م" color="emerald" icon="💰" />
+            <x-kpi-card label="إجمالي الخصومات" :value="$additional_kpis['total_discount'] ?? 0" suffix="ج.م" color="red" icon="📉" />
+            <x-kpi-card label="متوسط الخصم" :value="$additional_kpis['avg_discount_percent'] ?? 0" suffix="%" color="amber" icon="📊" />
             <x-kpi-card label="عدد العمليات" :value="$totals['sales_count'] ?? 0" color="blue" icon="📋" />
         </div>
 

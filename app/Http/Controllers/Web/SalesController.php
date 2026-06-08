@@ -106,6 +106,15 @@ class SalesController extends Controller
                 });
             });
         }
+        if ($request->filled('price_from')) {
+            $from = (float) $request->input('price_from');
+            // Filter on line total; if no unit_price fall back to unit_price alone
+            $query->where(DB::raw('(quantity * COALESCE(unit_price, 0) * (1 - COALESCE(discount, 0) / 100))'), '>=', $from);
+        }
+        if ($request->filled('price_to')) {
+            $to = (float) $request->input('price_to');
+            $query->where(DB::raw('(quantity * COALESCE(unit_price, 0) * (1 - COALESCE(discount, 0) / 100))'), '<=', $to);
+        }
 
         return $query;
     }

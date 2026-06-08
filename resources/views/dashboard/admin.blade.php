@@ -17,8 +17,8 @@
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <x-kpi-card label="إجمالي الإيرادات" :value="number_format($totals['total_revenue'] ?? 0, 2) . ' ج.م'" color="emerald" icon="💰" />
-    <x-kpi-card label="متوسط قيمة البيع" :value="number_format(($totals['total_revenue'] ?? 0) / max($totals['sales_count'] ?? 1, 1), 2) . ' ج.م'" color="indigo" icon="📈" />
+    <x-kpi-card label="إجمالي الإيرادات" :value="$totals['total_revenue'] ?? 0" suffix="ج.م" color="emerald" icon="💰" />
+    <x-kpi-card label="متوسط قيمة البيع" :value="($totals['total_revenue'] ?? 0) / max($totals['sales_count'] ?? 1, 1)" suffix="ج.م" color="indigo" icon="📈" />
 </div>
 
 {{-- Charts Rows --}}
