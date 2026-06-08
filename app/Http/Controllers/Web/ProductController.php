@@ -97,4 +97,81 @@ class ProductController extends Controller
 
         return redirect()->route('products.index')->with('status', 'تم حذف الصنف بنجاح.');
     }
+
+    /**
+     * Simple LIKE search for the merge modal — no similarity threshold.
+     */
+    public function mergeSearch(\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse
+    {
+        $request->validate([
+            'query'      => 'required|string|min:1',
+            'company_id' => 'required|integer|exists:companies,id',
+            'exclude_id' => 'nullable|integer',
+        ]);
+
+        $query     = $request->input('query');
+        $companyId = (int) $request->input('company_id');
+        $excludeId = $request->input('exclude_id');
+
+        $products = Product::where('company_id', $companyId)
+            ->where('name', 'like', '%' . $query . '%')
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
+            ->orderBy('name')
+            ->limit(15)
+            ->get(['id', 'name', 'price']);
+
+        return response()->json([
+            'results' => $products->map(fn ($p) => [
+                'id'    => $p->id,
+                'name'  => $p->name,
+                'price' => number_format((float) $p->price, 2),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Merge $product (duplicate) into the canonical product chosen by the user.
+     * All sales of $product are re-pointed to the canonical, an alias is saved,
+     * then the duplicate is deleted.
+     */
+    public function merge(Request $request, Product $product): RedirectResponse
+    {
+        $user = auth()->user();
+        $this->productService->assertCompanyAccess($user, $product);
+
+        $data = $request->validate([
+            'canonical_product_id' => ['required', 'integer', 'exists:products,id', 'different:product'],
+        ]);
+
+        $canonical = Product::findOrFail($data['canonical_product_id']);
+
+        // Must be same company
+        if ($canonical->company_id !== $product->company_id) {
+            return back()->with('error', 'لا يمكن الدمج بين منتجات شركات مختلفة.');
+        }
+
+        if ($canonical->id === $product->id) {
+            return back()->with('error', 'لا يمكن دمج المنتج مع نفسه.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($product, $canonical) {
+            // Re-point all sales
+            \App\Models\Sale::where('product_id', $product->id)
+                ->update(['product_id' => $canonical->id]);
+
+            // Save alias so future imports resolve correctly
+            \App\Models\ProductAlias::updateOrCreate(
+                ['alias_name' => $product->name],
+                ['product_id' => $canonical->id]
+            );
+
+            // Remove any alias pointing to the duplicate to avoid FK conflicts
+            \App\Models\ProductAlias::where('product_id', $product->id)->delete();
+
+            $product->delete();
+        });
+
+        return redirect()->route('products.index')
+            ->with('status', "تم دمج \"{$product->name}\" في \"{$canonical->name}\" بنجاح.");
+    }
 }

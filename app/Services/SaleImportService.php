@@ -808,6 +808,7 @@ class SaleImportService
 
     private function extractDose(string $productName): ?string
     {
+        // Only extract actual therapeutic doses (mg-based) — NOT pack sizes like "120 مل"
         $mgPatterns = [
             '/(\d+(?:\.\d+)?)\s*(?:مجم|ملجم|ملغ|mg)\b/iu',
             '/(\d+(?:\.\d+)?)(?:مجم|ملجم|ملغ|mg)\b/iu',
@@ -819,17 +820,12 @@ class SaleImportService
             }
         }
 
-        $fallbackPatterns = [
-            '/(\d+(?:\.\d+)?)(?:فيال|فيل|vial)/iu',
-            '/(\d+(?:\.\d+)?)\s*(?:مل|ml)\b/iu',
-        ];
-
-        foreach ($fallbackPatterns as $pattern) {
-            if (preg_match($pattern, $productName, $matches)) {
-                return $matches[1];
-            }
+        // Vial numbers are dose-like (e.g. "40 فيال")
+        if (preg_match('/(\d+(?:\.\d+)?)(?:فيال|فيل|vial)/iu', $productName, $matches)) {
+            return $matches[1];
         }
 
+        // مل / ml alone is a pack size, NOT a dose — do not use it as dose
         return null;
     }
 
@@ -1001,16 +997,32 @@ class SaleImportService
             ->sortByDesc('name_similarity')
             ->values();
 
-        if ($sameBrandMatches->isNotEmpty() && $incomingMeta['dose'] !== null) {
-            $hasSameDose = $sameBrandMatches->contains(
-                fn (array $item) => $item['db_meta']['dose'] === $incomingMeta['dose']
-            );
+        if ($sameBrandMatches->isNotEmpty()) {
+            $best = $sameBrandMatches->first();
 
-            if (! $hasSameDose) {
-                return [
-                    'type' => 'strength_variant',
-                    'should_intercept' => false,
-                ];
+            // Same brand + same form group → likely same product with different pack size or
+            // extra words in name → send to reconciliation so user can decide
+            if (
+                $incomingMeta['dose'] === null
+                && $best['db_meta']['dose'] === null
+                && $incomingMeta['form_group'] === $best['db_meta']['form_group']
+                && $best['name_similarity'] >= self::FINGERPRINT_REVIEW_THRESHOLD
+            ) {
+                return $this->buildAmbiguousMatch($sameBrandMatches);
+            }
+
+            // Same brand, incoming has a dose that doesn't exist yet → new strength variant
+            if ($incomingMeta['dose'] !== null) {
+                $hasSameDose = $sameBrandMatches->contains(
+                    fn (array $item) => $item['db_meta']['dose'] === $incomingMeta['dose']
+                );
+
+                if (! $hasSameDose) {
+                    return [
+                        'type' => 'strength_variant',
+                        'should_intercept' => false,
+                    ];
+                }
             }
         }
 
@@ -1152,19 +1164,22 @@ class SaleImportService
         $str = str_replace('ى', 'ي', $str);
         $str = str_replace(['ؤ', 'ئ'], 'و', $str);
 
-        // Remove punctuation that can stick words together
+        // Collapse Arabic tatweel/kashida (e.g. شـــراب → شراب)
+        $str = preg_replace('/ـ+/u', '', $str);
+
+        // Remove punctuation and separators
         $str = str_replace(['%', '.', ',', '-', '_', '(', ')'], ' ', $str);
 
-        // Replace measurement/unit words with a space
-        $str = preg_replace('/\s*(مجم|مل|كبسولة|قرص|نقط|أمبول)\s*/iu', ' ', $str);
+        // Remove pack-size units (مل, ml) — these are NOT part of the product identity
+        $str = preg_replace('/\s*\d+\s*(?:مل|ml)\b\s*/iu', ' ', $str);
 
-        // Remove fractions like 400/5 but keep space separation
+        // Remove fractions like 400/5
         $str = preg_replace('/\s*\d+\s*(\/|÷)\s*\d+\s*/u', ' ', $str);
 
-        // Remove any remaining digits (western or arabic) and symbols, replace with space
+        // Remove digits
         $str = preg_replace('/[0-9٠-٩]+/u', ' ', $str);
 
-        // Collapse multiple spaces again after replacements
+        // Collapse multiple spaces
         $str = preg_replace('/\s+/', ' ', trim($str));
 
         return $str;

@@ -46,6 +46,8 @@ Route::middleware('auth')->group(function () {
     // ── Admin + Company ───────────────────────────────────────
     Route::middleware('role:admin,company')->group(function () {
         Route::resource('products', \App\Http\Controllers\Web\ProductController::class)->only(['index', 'create', 'store', 'edit', 'update', 'destroy']);
+        Route::post('/products/{product}/merge', [\App\Http\Controllers\Web\ProductController::class, 'merge'])->name('products.merge');
+        Route::post('/products/merge-search', [\App\Http\Controllers\Web\ProductController::class, 'mergeSearch'])->name('products.merge-search');
         Route::resource('sales',    \App\Http\Controllers\Web\SalesController::class)->only(['index', 'show']);
         Route::get('/reports',      [\App\Http\Controllers\Web\ReportController::class,  'index'])->name('reports.index');
         Route::get('/reports/sales/export', [\App\Http\Controllers\Web\ReportController::class, 'exportSales'])->name('reports.export-sales');
