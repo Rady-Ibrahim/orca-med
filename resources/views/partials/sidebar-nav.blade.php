@@ -21,7 +21,6 @@
     $companyNav = [
         ['route' => 'dashboard',               'label' => 'لوحة القيادة',      'icon' => 'home'],
         ['route' => 'products.index',          'label' => 'المنتجات',          'icon' => 'package'],
-        ['route' => 'products.reconciliation.index', 'label' => 'تصحيح المنتجات', 'icon' => 'search'],
         ['route' => 'sales.index',             'label' => 'المبيعات',          'icon' => 'chart-bar'],
         ['route' => 'reports.index',           'label' => 'التقارير',          'icon' => 'document'],
         ['route' => 'activation.index',        'label' => 'تفعيل التحليلات',   'icon' => 'key'],
