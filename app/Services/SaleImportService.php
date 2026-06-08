@@ -36,6 +36,10 @@ class SaleImportService
 
     private const BASE_AMBIGUOUS_THRESHOLD = 0.90;
 
+    private const FINGERPRINT_REVIEW_THRESHOLD = 0.60;
+
+    private const AUTO_MATCH_THRESHOLD = 0.95;
+
     public function __construct() {}
 
     public function createQueuedBatch(
@@ -91,8 +95,9 @@ class SaleImportService
             return [];
         }
 
-        // Extract product names and their row numbers from rows
-        $productOccurrences = [];
+        // Extract product names, their row numbers, and prices from rows
+        $productOccurrences = [];  // productName => [rowNumber, ...]
+        $productPrices = [];       // productName => float|null (first seen price)
         foreach ($rows as $index => $row) {
             if (! is_array($row)) {
                 continue;
@@ -109,6 +114,14 @@ class SaleImportService
 
             $productOccurrences[$productName] ??= [];
             $productOccurrences[$productName][] = $rowNumber;
+
+            // Store the first seen unit_price for this product name
+            if (! isset($productPrices[$productName])) {
+                $unitPrice = isset($raw['unit_price']) && $raw['unit_price'] !== null && $raw['unit_price'] !== ''
+                    ? (float) $raw['unit_price']
+                    : null;
+                $productPrices[$productName] = $unitPrice;
+            }
         }
 
         \Log::info('Product names extracted', ['count' => count($productOccurrences)]);
@@ -134,6 +147,8 @@ class SaleImportService
                 ? collect()
                 : Product::whereIn('id', $candidateIds)->get()->keyBy('id');
 
+            $incomingPrice = $productPrices[$productName] ?? null;
+
             $similarEntries = $candidates->map(function (array $candidate) use ($candidateProducts) {
                 $productId = $candidate['product_id'] ?? null;
                 $product = $productId ? $candidateProducts->get($productId) : null;
@@ -142,7 +157,8 @@ class SaleImportService
                     $product = (object) [
                         'id' => $productId,
                         'name' => $candidate['product_name'],
-                        'code' => $product?->code ?? null,
+                        'code' => null,
+                        'price' => null,
                     ];
                 }
 
@@ -158,12 +174,77 @@ class SaleImportService
 
             $similarities[$productName] = [
                 'original' => $productName,
+                'incoming_price' => $incomingPrice,
                 'rows' => array_values(array_unique($rowsForProduct)),
                 'similar' => $similarEntries,
             ];
         }
 
+        $similarities = $this->detectWithinFileDuplicates($productOccurrences, $productPrices, $similarities);
+
         \Log::info('Similarities detected', ['count' => count($similarities)]);
+
+        return $similarities;
+    }
+
+    /**
+     * @param  array<string, array<int>>  $productOccurrences
+     * @param  array<string, float|null>  $productPrices
+     * @param  array<string, array<string, mixed>>  $similarities
+     * @return array<string, array<string, mixed>>
+     */
+    private function detectWithinFileDuplicates(array $productOccurrences, array $productPrices, array $similarities): array
+    {
+        $byFingerprint = [];
+
+        foreach (array_keys($productOccurrences) as $productName) {
+            $fingerprint = $this->extractProductMetadata($productName)['fingerprint'];
+            if ($fingerprint === '||' || $fingerprint === '|unknown|') {
+                continue;
+            }
+            $byFingerprint[$fingerprint][] = $productName;
+        }
+
+        foreach ($byFingerprint as $names) {
+            if (count($names) < 2) {
+                continue;
+            }
+
+            usort($names, fn ($a, $b) => count($productOccurrences[$b]) <=> count($productOccurrences[$a]));
+
+            $canonicalName = $names[0];
+            $canonicalPrice = $productPrices[$canonicalName] ?? null;
+
+            for ($i = 1; $i < count($names); $i++) {
+                $variantName = $names[$i];
+                $variantPrice = $productPrices[$variantName] ?? null;
+
+                // If both products have prices and they are different, they are distinct products — skip
+                if ($canonicalPrice !== null && $variantPrice !== null && abs($canonicalPrice - $variantPrice) > 0.01) {
+                    continue;
+                }
+
+                if (isset($similarities[$variantName])) {
+                    continue;
+                }
+
+                $similarities[$variantName] = [
+                    'original' => $variantName,
+                    'incoming_price' => $variantPrice,
+                    'rows' => array_values(array_unique($productOccurrences[$variantName])),
+                    'similar' => [[
+                        'product' => (object) [
+                            'id' => null,
+                            'name' => $canonicalName,
+                            'code' => null,
+                            'price' => $canonicalPrice,
+                        ],
+                        'similarity' => $this->calculateSimilarity($variantName, $canonicalName),
+                    ]],
+                    'within_file' => true,
+                ];
+            }
+        }
 
         return $similarities;
     }
@@ -323,19 +404,23 @@ class SaleImportService
         $pharmaciesCache = [];
         $productsCache = [];
 
+        $nameMappings = $this->getBatchNameMappings($batch);
+
         return collect($rows)->values()->map(function (array $row, int $index) use (
             $mapping,
             &$productsByName,
             &$pharmaciesCache,
             &$productsCache,
-            $batch
+            $batch,
+            $nameMappings
         ) {
             $rowNumber = $index + 2;
             $raw = $this->extractRow($row, $mapping);
             $errors = [];
 
             $outletName = trim((string) ($raw['outlet_name'] ?? ''));
-            $productName = trim((string) ($raw['product_name'] ?? ''));
+            $originalProductName = trim((string) ($raw['product_name'] ?? ''));
+            $productName = $nameMappings[$originalProductName] ?? $originalProductName;
             $quantity = (int) ($raw['quantity'] ?? 0);
             $soldAtRaw = $raw['sold_at'] ?? null;
             $soldAt = $this->parseDate($soldAtRaw);
@@ -462,6 +547,13 @@ class SaleImportService
                             'product_name' => $productName,
                             'product_id' => $productId,
                         ]);
+                    }
+
+                    if ($productId && $originalProductName !== '' && $originalProductName !== $productName) {
+                        ProductAlias::updateOrCreate(
+                            ['alias_name' => $originalProductName],
+                            ['product_id' => $productId]
+                        );
                     }
                 }
             }
@@ -691,82 +783,158 @@ class SaleImportService
     }
 
     /**
-     * Extract product metadata: base name and strength/grammage values
-     * Examples:
-     *   "أسبرين 500 ملغ" → { base_name: "أسبرين", strengths: ["500"], unit: "ملغ" }
-     *   "جافيسكون 10 مل" → { base_name: "جافيسكون", strengths: ["10"], unit: "مل" }
-     *   "باراسيتامول" → { base_name: "باراسيتامول", strengths: [], unit: null }
+     * Extract product metadata for matching: brand, dose (mg/ml), and form group.
      */
     private function extractProductMetadata(string $productName): array
     {
-        // Pattern to match: number + optional unit
-        // Supports: "500 ملغ", "1000mg", "10g", "250", "5 مل", etc.
-        $pattern = '/(\d+(?:\.\d+)?)\s*([ملغmgmlgكبسولةقرصنقطأمبولcapsuletabletdropampule]*)/iu';
-        
-        preg_match_all($pattern, $productName, $matches);
-        
-        $strengths = [];
-        $unit = null;
-        
-        if (!empty($matches[1])) {
-            $strengths = array_map('trim', $matches[1]);
-            // Get the unit from the last match
-            if (!empty($matches[2])) {
-                $unit = trim($matches[2][count($matches[2]) - 1]) ?: null;
-            }
-        }
-        
-        // Remove all numbers and units to get base name
-        $baseName = preg_replace('/\d+\s*[ملغmgmlgكبسولةقرصنقطأمبولcapsuletabletdropampule]*/iu', '', $productName);
-        $baseName = preg_replace('/\s+/', ' ', trim($baseName));
-        
+        $dose = $this->extractDose($productName);
+        $form = $this->detectProductForm($productName);
+        $formGroup = $this->normalizeFormGroup($form);
+        $brand = $this->extractBrand($productName);
+
         return [
             'full_name' => $productName,
-            'base_name' => $baseName,
-            'strengths' => $strengths,
-            'unit' => $unit,
-            'has_strength' => !empty($strengths),
+            'base_name' => $brand,
+            'brand' => $brand,
+            'dose' => $dose,
+            'form' => $form,
+            'form_group' => $formGroup,
+            'fingerprint' => $this->buildProductFingerprint($brand, $dose, $formGroup),
+            'strengths' => $dose !== null ? [$dose] : [],
+            'unit' => null,
+            'has_strength' => $dose !== null,
         ];
     }
 
+    private function extractDose(string $productName): ?string
+    {
+        $mgPatterns = [
+            '/(\d+(?:\.\d+)?)\s*(?:مجم|ملجم|ملغ|mg)\b/iu',
+            '/(\d+(?:\.\d+)?)(?:مجم|ملجم|ملغ|mg)\b/iu',
+        ];
+
+        foreach ($mgPatterns as $pattern) {
+            if (preg_match($pattern, $productName, $matches)) {
+                return $matches[1];
+            }
+        }
+
+        $fallbackPatterns = [
+            '/(\d+(?:\.\d+)?)(?:فيال|فيل|vial)/iu',
+            '/(\d+(?:\.\d+)?)\s*(?:مل|ml)\b/iu',
+        ];
+
+        foreach ($fallbackPatterns as $pattern) {
+            if (preg_match($pattern, $productName, $matches)) {
+                return $matches[1];
+            }
+        }
+
+        return null;
+    }
+
+    private function extractBrand(string $productName): string
+    {
+        if (preg_match('/^([\p{Arabic}]+)/u', trim($productName), $matches)) {
+            return $this->normalizeForComparison($matches[1]);
+        }
+
+        $tokens = $this->tokenizeBaseName($productName);
+
+        return $tokens[0] ?? $this->normalizeForComparison($productName);
+    }
+
+    private function detectProductForm(string $productName): string
+    {
+        if (preg_match('/فيال|فيل|vial|امبول|أمبول|ampoule/iu', $productName)) {
+            return 'vial';
+        }
+        if (preg_match('/كبسول|capsule|\bcap\b/iu', $productName)) {
+            return 'capsule';
+        }
+        if (preg_match('/شريط|strip/iu', $productName)) {
+            return 'strip';
+        }
+        if (preg_match('/قرص|tablet|\btab\b/iu', $productName)) {
+            return 'tablet';
+        }
+        if (preg_match('/شراب|syrup/iu', $productName)) {
+            return 'syrup';
+        }
+
+        return 'unknown';
+    }
+
+    private function normalizeFormGroup(string $form): string
+    {
+        return in_array($form, ['vial'], true) ? 'parenteral' : 'oral';
+    }
+
+    private function buildProductFingerprint(string $brand, ?string $dose, string $formGroup): string
+    {
+        return mb_strtolower(trim($brand), 'UTF-8') . '|' . ($dose ?? '') . '|' . $formGroup;
+    }
+
     /**
-     * STRICT PRODUCT MATCHING WITH MANUAL INTERCEPTION
+     * @return array<string, string>
+     */
+    private function getBatchNameMappings(UploadBatch $batch): array
+    {
+        if (! $batch->notes) {
+            return [];
+        }
+
+        $decoded = json_decode($batch->notes, true);
+
+        return is_array($decoded) ? ($decoded['name_mappings'] ?? []) : [];
+    }
+
+    /**
+     * @param  array<string, string>  $nameMappings
+     */
+    public function saveBatchNameMappings(UploadBatch $batch, array $nameMappings): void
+    {
+        if (empty($nameMappings)) {
+            return;
+        }
+
+        $decoded = json_decode($batch->notes ?? '{}', true);
+        if (! is_array($decoded)) {
+            $decoded = [];
+        }
+
+        $decoded['name_mappings'] = array_merge($decoded['name_mappings'] ?? [], $nameMappings);
+        $batch->update(['notes' => json_encode($decoded, JSON_UNESCAPED_UNICODE)]);
+    }
+
+    /**
+     * Match imported product names to existing catalog entries.
      *
-     * Rules:
-     * A) Exact Match (100%): Process immediately
-     * B) Different Strengths: Auto-create as new product variant
-     * C) Spelling Typos/Mismatches: INTERCEPT and route to manual review
-     *
-     * Returns array with keys:
-     *   - 'type': 'exact' | 'strength_variant' | 'ambiguous' | 'new'
-     *   - 'product': Product model (if exact or strength_variant)
-     *   - 'candidates': array of potential matches (if ambiguous)
-     *   - 'should_intercept': boolean (true if needs manual review)
+     * Uses brand + dose + form fingerprint so spelling/pack-size variants
+     * route to reconciliation instead of creating duplicate products.
      */
     private function findProductMatch(string $productName, int $companyId, ?int $currentBatchId = null): array
     {
         $incomingMeta = $this->extractProductMetadata($productName);
 
-        $alias = null;
         if ($productName !== '') {
             $alias = ProductAlias::with('product')
                 ->where('alias_name', $productName)
                 ->first();
+
+            if ($alias && $alias->product && $alias->product->company_id === $companyId) {
+                return [
+                    'type' => 'exact',
+                    'product' => $alias->product,
+                    'should_intercept' => false,
+                ];
+            }
         }
 
-        if ($alias && $alias->product && $alias->product->company_id === $companyId) {
-            return [
-                'type' => 'exact',
-                'product' => $alias->product,
-                'should_intercept' => false,
-            ];
-        }
-
-        // Rule A: Check for exact match (100%)
         $exactMatch = Product::where('company_id', $companyId)
             ->where('name', $productName)
             ->first();
-        
+
         if ($exactMatch) {
             return [
                 'type' => 'exact',
@@ -774,125 +942,143 @@ class SaleImportService
                 'should_intercept' => false,
             ];
         }
-        
-        // Get all products for this company, excluding those from current batch
-        $productQuery = Product::where('company_id', $companyId);
-        if ($currentBatchId !== null) {
-            $productQuery->where('upload_batch_id', '!=', $currentBatchId);
-        }
-        $allProducts = $productQuery->get();
-        
+
+        $allProducts = Product::where('company_id', $companyId)->get();
+
         if ($allProducts->isEmpty()) {
-            // No products exist yet, create new
             return [
                 'type' => 'new',
                 'should_intercept' => false,
             ];
         }
-        
-        // Analyze each existing product
-        $matches = $allProducts->map(function ($product) use ($incomingMeta) {
+
+        $scored = $allProducts->map(function (Product $product) use ($incomingMeta, $productName) {
             $dbMeta = $this->extractProductMetadata($product->name);
-            
-            // Compare base names (without strength)
-            $baseSimilarity = $this->calculateBaseSimilarity(
-                $incomingMeta['base_name'],
-                $dbMeta['base_name']
-            );
-            
+
             return [
                 'product' => $product,
                 'db_meta' => $dbMeta,
-                'base_similarity' => $baseSimilarity,
+                'name_similarity' => $this->calculateSimilarity($productName, $product->name),
+                'same_fingerprint' => $incomingMeta['fingerprint'] === $dbMeta['fingerprint'],
+                'same_brand_dose' => $incomingMeta['brand'] !== ''
+                    && $incomingMeta['brand'] === $dbMeta['brand']
+                    && $incomingMeta['dose'] !== null
+                    && $incomingMeta['dose'] === $dbMeta['dose'],
             ];
-        })->toArray();
-        
-        // Rule B: Check for strength variants (same base name, different strength)
-        $normalizedIncomingBase = $this->normalizeForComparison($incomingMeta['base_name']);
-        $incomingTokens = $this->tokenizeBaseName($incomingMeta['base_name']);
-
-        $sameBaseMatches = array_filter($matches, function ($item) use ($incomingTokens) {
-            $dbTokens = $this->tokenizeBaseName($item['db_meta']['base_name']);
-
-            return ! empty($incomingTokens)
-                && ! empty($dbTokens)
-                && $incomingTokens[0] === $dbTokens[0];
         });
 
-        if (! empty($sameBaseMatches)) {
-            $incomingStrengths = $this->normalizeStrengths($incomingMeta['strengths']);
+        $fingerprintMatches = $scored
+            ->filter(fn (array $item) => $item['same_fingerprint'])
+            ->sortByDesc('name_similarity')
+            ->values();
 
-            $sameStrengthMatches = array_filter($sameBaseMatches, function ($item) use ($incomingStrengths) {
-                $dbStrengths = $this->normalizeStrengths($item['db_meta']['strengths']);
-                return $incomingStrengths !== '' && $incomingStrengths === $dbStrengths;
-            });
+        if ($fingerprintMatches->isNotEmpty()) {
+            return $this->resolveFingerprintMatches($fingerprintMatches, $productName);
+        }
 
-            if (! empty($sameStrengthMatches)) {
-                $firstMatch = reset($sameStrengthMatches);
+        $brandDoseMatches = $scored
+            ->filter(fn (array $item) => $item['same_brand_dose'])
+            ->sortByDesc('name_similarity')
+            ->values();
+
+        if ($brandDoseMatches->isNotEmpty()) {
+            $best = $brandDoseMatches->first();
+
+            if ($best['name_similarity'] >= self::FINGERPRINT_REVIEW_THRESHOLD) {
+                return $this->buildAmbiguousMatch($brandDoseMatches);
+            }
+
+            if ($incomingMeta['form_group'] !== $best['db_meta']['form_group']) {
                 return [
-                    'type' => 'exact',
-                    'product' => $firstMatch['product'],
+                    'type' => 'strength_variant',
                     'should_intercept' => false,
                 ];
             }
+        }
 
+        $sameBrandMatches = $scored
+            ->filter(fn (array $item) => $incomingMeta['brand'] !== '' && $incomingMeta['brand'] === $item['db_meta']['brand'])
+            ->sortByDesc('name_similarity')
+            ->values();
+
+        if ($sameBrandMatches->isNotEmpty() && $incomingMeta['dose'] !== null) {
+            $hasSameDose = $sameBrandMatches->contains(
+                fn (array $item) => $item['db_meta']['dose'] === $incomingMeta['dose']
+            );
+
+            if (! $hasSameDose) {
+                return [
+                    'type' => 'strength_variant',
+                    'should_intercept' => false,
+                ];
+            }
+        }
+
+        $brandTypoMatches = $scored
+            ->filter(function (array $item) use ($incomingMeta) {
+                if ($incomingMeta['brand'] === '' || $item['db_meta']['brand'] === '') {
+                    return false;
+                }
+
+                if ($incomingMeta['brand'] === $item['db_meta']['brand']) {
+                    return false;
+                }
+
+                return $this->calculateSimilarity($incomingMeta['brand'], $item['db_meta']['brand'])
+                    >= self::BASE_AMBIGUOUS_THRESHOLD;
+            })
+            ->sortByDesc('name_similarity')
+            ->values();
+
+        if ($brandTypoMatches->isNotEmpty()) {
+            return $this->buildAmbiguousMatch($brandTypoMatches);
+        }
+
+        return [
+            'type' => 'new',
+            'should_intercept' => false,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $matches
+     * @return array<string, mixed>
+     */
+    private function resolveFingerprintMatches(Collection $matches, string $productName): array
+    {
+        $best = $matches->first();
+
+        if ($best['name_similarity'] >= self::AUTO_MATCH_THRESHOLD || $best['product']->name === $productName) {
             return [
-                'type' => 'strength_variant',
+                'type' => 'exact',
+                'product' => $best['product'],
                 'should_intercept' => false,
             ];
         }
 
-        // Rule C: Check for spelling typos/mismatches
-        // If base similarity is high (≥60%) but base names differ, it's likely a typo
-        $potentialMatches = array_filter($matches, function ($item) use ($incomingMeta) {
-            // Skip if full names are 100% identical (should have been caught by Rule A)
-            if ($incomingMeta['full_name'] === $item['db_meta']['full_name']) {
-                return false;
-            }
+        return $this->buildAmbiguousMatch($matches);
+    }
 
-            $dbTokens = $this->tokenizeBaseName($item['db_meta']['base_name']);
-            $incomingTokens = $this->tokenizeBaseName($incomingMeta['base_name']);
+    /**
+     * @param  Collection<int, array<string, mixed>>  $matches
+     * @return array<string, mixed>
+     */
+    private function buildAmbiguousMatch(Collection $matches): array
+    {
+        $candidates = $matches
+            ->take(5)
+            ->map(fn (array $item) => [
+                'product_id' => $item['product']->id,
+                'product_name' => $item['product']->name,
+                'similarity' => round($item['name_similarity'] * 100, 1),
+            ])
+            ->values()
+            ->all();
 
-            if (empty($incomingTokens) || empty($dbTokens)) {
-                return false;
-            }
-
-            $firstTokenMatches = $incomingTokens[0] === $dbTokens[0];
-            if ($firstTokenMatches) {
-                return false;
-            }
-
-            $firstTokenSimilarity = $this->calculateSimilarity($incomingTokens[0], $dbTokens[0]);
-
-            return $firstTokenSimilarity >= self::BASE_AMBIGUOUS_THRESHOLD;
-        });
-        
-        if (!empty($potentialMatches)) {
-            // INTERCEPT: Route to manual review
-            // Sort by similarity descending
-            usort($potentialMatches, function ($a, $b) {
-                return $b['base_similarity'] <=> $a['base_similarity'];
-            });
-            
-            $candidates = array_map(function ($item) {
-                return [
-                    'product_id' => $item['product']->id,
-                    'product_name' => $item['product']->name,
-                    'similarity' => round($item['base_similarity'] * 100, 1),
-                ];
-            }, $potentialMatches);
-            
-            return [
-                'type' => 'ambiguous',
-                'candidates' => $candidates,
-                'should_intercept' => true,
-            ];
-        }
-        
-        // No match found, create new product
         return [
-            'type' => 'new',
-            'should_intercept' => false,
+            'type' => 'ambiguous',
+            'candidates' => $candidates,
+            'should_intercept' => true,
         ];
     }
 

@@ -69,7 +69,23 @@ class ImportController extends Controller
             $request->integer('province_id')
         );
 
-        // Detect similar products before processing
+        // First file for this company = reference file → import directly, no reconciliation.
+        // Reconciliation only makes sense when there are already products to compare against.
+        $hasExistingProducts = \App\Models\Product::where('company_id', $batch->company_id)->exists();
+
+        if (!$hasExistingProducts) {
+            \Log::info('First file for company — skipping reconciliation (reference file)', [
+                'batch_id'   => $batch->id,
+                'company_id' => $batch->company_id,
+            ]);
+
+            ProcessSaleImportJob::dispatch($batch->id)->afterResponse();
+
+            return redirect()->route('imports.index')
+                ->with('status', 'تم رفع الملف المرجعي وبدء المعالجة.');
+        }
+
+        // Subsequent files: detect similar products and ask user to reconcile if needed
         try {
             $similarities = $this->importService->detectSimilarProductsInFile(
                 $batch->stored_path,
@@ -83,7 +99,6 @@ class ImportController extends Controller
             ]);
 
             if (!empty($similarities)) {
-                // Store similarities in session and redirect to reconciliation page
                 session()->put('product_similarities', $similarities);
                 session()->put('reconciliation_company_id', $batch->company_id);
                 session()->put('reconciliation_upload_batch_id', $batch->id);
@@ -97,10 +112,9 @@ class ImportController extends Controller
                     ->with('info', 'تم اكتشاف ' . count($similarities) . ' أسماء متشابهة. يرجى مراجعتها قبل المعالجة.');
             }
         } catch (\Throwable $e) {
-            // If similarity detection fails, log error but continue with processing
             \Log::error('Similarity detection failed', [
                 'batch_id' => $batch->id,
-                'error' => $e->getMessage(),
+                'error'    => $e->getMessage(),
             ]);
         }
 

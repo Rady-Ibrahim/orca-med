@@ -124,23 +124,22 @@ class UploadBatchService
 
             $sale = $this->createSaleFromRow($batch, $mapped, $product->id);
         } else {
-            // Generate unique code
-            $code = strtoupper(substr(md5($batch->company_id . ($raw['product_name'] ?? uniqid('', true))), 0, 8));
+            // create_new: firstOrCreate prevents duplicates when the same product name
+            // appears across multiple ambiguous rows or if the batch is re-processed.
+            $productName = $raw['product_name'] ?? ('منتج جديد ' . $batch->id . '-' . $error->row_number);
+            $unitPrice   = isset($mapped['unit_price']) ? (float) $mapped['unit_price'] : 0;
 
-            // Ensure code is unique
-            while (Product::where('code', $code)->exists()) {
-                $code = strtoupper(substr(md5(uniqid('', true)), 0, 8));
-            }
-
-            $unitPrice = isset($mapped['unit_price']) ? (float) $mapped['unit_price'] : 0;
-
-            $product = Product::create([
-                'company_id' => $batch->company_id,
-                'upload_batch_id' => $batch->id,
-                'name' => $raw['product_name'] ?? ('منتج جديد ' . $batch->id . '-' . $error->row_number),
-                'code' => $code,
-                'price' => $unitPrice > 0 ? $unitPrice : 0,
-            ]);
+            $product = Product::firstOrCreate(
+                [
+                    'company_id' => $batch->company_id,
+                    'name'       => $productName,
+                ],
+                [
+                    'upload_batch_id' => $batch->id,
+                    'code'  => strtoupper(substr(md5($batch->company_id . $productName), 0, 8)),
+                    'price' => $unitPrice > 0 ? $unitPrice : 0,
+                ]
+            );
 
             $sale = $this->createSaleFromRow($batch, $mapped, $product->id);
         }

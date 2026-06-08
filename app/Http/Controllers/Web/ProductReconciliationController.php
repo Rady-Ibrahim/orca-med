@@ -98,11 +98,20 @@ class ProductReconciliationController extends Controller
                             'rows' => [],
                             'count' => 0,
                             'candidate_data' => [],
+                            'incoming_price' => null,
                         ];
                     }
 
                     $grouped[$rawProductName]['count']++;
                     $grouped[$rawProductName]['rows'][] = $error->row_number;
+
+                    // Capture the unit_price from the raw row data (take first non-null)
+                    if ($grouped[$rawProductName]['incoming_price'] === null) {
+                        $rawPrice = $error->row_data['raw']['unit_price'] ?? null;
+                        if ($rawPrice !== null && $rawPrice !== '') {
+                            $grouped[$rawProductName]['incoming_price'] = (float) $rawPrice;
+                        }
+                    }
 
                     foreach ($error->row_data['candidates'] ?? [] as $candidate) {
                         $productId = $candidate['product_id'] ?? null;
@@ -146,6 +155,7 @@ class ProductReconciliationController extends Controller
 
                     $groupedResults[] = [
                         'original' => $item['original'],
+                        'incoming_price' => $item['incoming_price'],
                         'rows' => array_unique($item['rows']),
                         'count' => $item['count'],
                         'row_number' => reset($item['rows']),
@@ -280,7 +290,7 @@ class ProductReconciliationController extends Controller
                 }
             }
         } else {
-            $this->savePreImportAliases($choices, $companyId);
+            $this->savePreImportAliases($choices, $companyId, $batch);
         }
 
         $remainingErrors = $batch->errors()
@@ -364,8 +374,10 @@ class ProductReconciliationController extends Controller
     /**
      * Process the import file after reconciliation
      */
-    private function savePreImportAliases(array $choices, int $companyId): void
+    private function savePreImportAliases(array $choices, int $companyId, UploadBatch $batch): void
     {
+        $nameMappings = [];
+
         foreach ($choices as $choice) {
             if (! empty($choice['create_new'])) {
                 continue;
@@ -373,20 +385,27 @@ class ProductReconciliationController extends Controller
 
             $originalName = trim((string) ($choice['original'] ?? ''));
             $productId = $choice['selected_product_id'] ?? null;
+            $canonicalName = trim((string) ($choice['selected_canonical_name'] ?? ''));
 
-            if ($originalName === '' || ! $productId) {
+            if ($originalName === '') {
                 continue;
             }
 
-            $product = Product::find($productId);
-            if (! $product || $product->company_id !== $companyId) {
-                continue;
+            if ($productId) {
+                $product = Product::find($productId);
+                if ($product && $product->company_id === $companyId) {
+                    ProductAlias::updateOrCreate(
+                        ['alias_name' => $originalName],
+                        ['product_id' => $product->id]
+                    );
+                }
+            } elseif ($canonicalName !== '' && $canonicalName !== $originalName) {
+                $nameMappings[$originalName] = $canonicalName;
             }
+        }
 
-            ProductAlias::updateOrCreate(
-                ['alias_name' => $originalName],
-                ['product_id' => $product->id]
-            );
+        if (! empty($nameMappings)) {
+            app(\App\Services\SaleImportService::class)->saveBatchNameMappings($batch, $nameMappings);
         }
     }
 

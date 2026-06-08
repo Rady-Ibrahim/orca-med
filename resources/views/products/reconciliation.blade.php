@@ -36,6 +36,11 @@
                                     @endif
                                 </span>
                                 <span class="font-semibold text-slate-800 text-lg">{{ $data['original'] }}</span>
+                                @if (isset($data['incoming_price']) && $data['incoming_price'] !== null)
+                                    <span class="mr-2 bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                        سعر الملف: {{ number_format($data['incoming_price'], 2) }}
+                                    </span>
+                                @endif
                             </div>
                             <div class="flex items-center gap-2">
                                 <label class="flex items-center gap-2 cursor-pointer">
@@ -58,18 +63,47 @@
                                 <label
                                     class="flex items-center p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors similar-option"
                                     data-index="{{ $index }}">
-                                    <input type="radio" name="choices[{{ $index }}][selected_product_id]"
-                                        value="{{ $similar['product']->id }}"
-                                        class="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
-                                        @if ($loop->first) checked @endif>
+                                    @if (!empty($data['within_file']) || empty($similar['product']->id))
+                                        <input type="radio" name="choices[{{ $index }}][selected_canonical_name]"
+                                            value="{{ $similar['product']->name }}"
+                                            class="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                            @if ($loop->first) checked @endif>
+                                    @else
+                                        <input type="radio" name="choices[{{ $index }}][selected_product_id]"
+                                            value="{{ $similar['product']->id }}"
+                                            class="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                            @if ($loop->first) checked @endif>
+                                    @endif
                                     <div class="flex-1 mr-3">
                                         <div class="flex items-center gap-2">
                                             <span class="font-medium text-slate-800">{{ $similar['product']->name }}</span>
                                             <span
                                                 class="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full">{{ round($similar['similarity'] * 100) }}%
                                                 تشابه</span>
+                                            @if (!empty($data['within_file']) || empty($similar['product']->id))
+                                                <span class="bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full">من الملف</span>
+                                            @endif
+                                            @php
+                                                $candidatePrice = isset($similar['product']->price) && $similar['product']->price
+                                                    ? (float) $similar['product']->price
+                                                    : null;
+                                                $incomingPrice = $data['incoming_price'] ?? null;
+                                                $priceMatch = $candidatePrice !== null && $incomingPrice !== null
+                                                    && abs($candidatePrice - $incomingPrice) <= 0.01;
+                                            @endphp
+                                            @if ($candidatePrice !== null)
+                                                <span class="@if($priceMatch) bg-emerald-100 text-emerald-700 @else bg-rose-100 text-rose-700 @endif text-xs px-2 py-0.5 rounded-full">
+                                                    سعر: {{ number_format($candidatePrice, 2) }}
+                                                    @if($priceMatch) ✓ @endif
+                                                </span>
+                                            @endif
                                         </div>
-                                        <div class="text-sm text-slate-500 mt-0.5">كود: {{ $similar['product']->code }}
+                                        <div class="text-sm text-slate-500 mt-0.5">
+                                            @if (!empty($similar['product']->code))
+                                                كود: {{ $similar['product']->code }}
+                                            @elseif(!empty($data['within_file']) || empty($similar['product']->id))
+                                                اسم موجود في نفس الملف
+                                            @endif
                                         </div>
                                     </div>
                                 </label>
