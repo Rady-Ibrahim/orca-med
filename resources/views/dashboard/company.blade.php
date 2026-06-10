@@ -159,9 +159,10 @@
 {{-- Pagination --}}
 @if(isset($pharmacy_details['links']))
     <div class="mt-4 flex justify-center">
-        @if(is_string($pharmacy_details['links']) || (is_object($pharmacy_details['links']) && method_exists($pharmacy_details['links'], '__toString')))
+        @if(is_string($pharmacy_details['links']) || is_object($pharmacy_details['links']))
             {!! $pharmacy_details['links'] !!}
         @elseif(is_array($pharmacy_details['links']))
+            {{-- معالجة آمنة لو رجعت مصفوفة عشان ما يضربش Array to string conversion --}}
             @endif
     </div>
 @endif
