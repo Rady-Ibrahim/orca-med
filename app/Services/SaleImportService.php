@@ -720,8 +720,17 @@ class SaleImportService
 
     private function normalizeHeader(string $header): string
     {
+        // Remove zero-width and non-breaking spaces
         $header = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{FEFF}]/u', ' ', $header);
         $header = trim($header);
+
+        // Normalize Arabic characters (same logic as normalizeForComparison)
+        $header = str_replace(['أ', 'إ', 'آ'], 'ا', $header);
+        $header = str_replace('ة', 'ه', $header);
+        $header = str_replace('ى', 'ي', $header);   // ← fixes "الصيدلى" → "الصيدلي"
+        $header = str_replace(['ؤ', 'ئ'], 'و', $header);
+
+        // Collapse spaces/dashes to underscore
         $header = preg_replace('/[\s\-]+/u', '_', $header);
         $header = trim($header, '_-');
 

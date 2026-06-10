@@ -76,22 +76,45 @@ class UploadBatchService
         $outletName = trim((string) ($raw['outlet_name'] ?? ''));
         $pharmacyId = null;
 
-        if (! empty($outletName)) {
-            $pharmacy = Pharmacy::where('name', $outletName)
-                ->where('supplier_id', $batch->supplier_id)
-                ->where('province_id', $batch->province_id)
-                ->first();
+        // First try: get pharmacy_id already stored in mapped data
+        if (! empty($mapped['pharmacy_id'])) {
+            $pharmacyId = (int) $mapped['pharmacy_id'];
+            // Verify it still exists
+            if (! Pharmacy::where('id', $pharmacyId)->exists()) {
+                $pharmacyId = null;
+            }
+        }
 
-            if (! $pharmacy) {
-                $pharmacy = Pharmacy::create([
+        // Second try: look up / create by outlet name
+        if (! $pharmacyId && ! empty($outletName)) {
+            $pharmacy = Pharmacy::firstOrCreate(
+                [
+                    'name'        => $outletName,
                     'supplier_id' => $batch->supplier_id,
                     'province_id' => $batch->province_id,
+                ],
+                [
                     'upload_batch_id' => $batch->id,
-                    'name' => $outletName,
-                    'code' => strtoupper(substr(md5($batch->supplier_id . $outletName), 0, 8)),
-                ]);
-            }
+                    'code'            => strtoupper(substr(md5($batch->supplier_id . $outletName), 0, 8)),
+                ]
+            );
+            $pharmacyId = $pharmacy->id;
+        }
 
+        // Last resort: create a placeholder pharmacy so the sale can be saved
+        if (! $pharmacyId) {
+            $fallbackName = $outletName ?: ('صيدلية غير محددة - batch ' . $batch->id);
+            $pharmacy = Pharmacy::firstOrCreate(
+                [
+                    'name'        => $fallbackName,
+                    'supplier_id' => $batch->supplier_id,
+                    'province_id' => $batch->province_id,
+                ],
+                [
+                    'upload_batch_id' => $batch->id,
+                    'code'            => strtoupper(substr(md5($batch->supplier_id . $fallbackName), 0, 8)),
+                ]
+            );
             $pharmacyId = $pharmacy->id;
         }
 
