@@ -27,10 +27,12 @@ class CompanyController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'name'          => ['required', 'string', 'max:255'],
+            'name'          => ['required', 'string', 'max:255', 'unique:companies,name'],
             'contact_email' => ['required', 'email', 'max:255'],
             'contact_phone' => ['nullable', 'string', 'max:30'],
             'is_active'     => ['boolean'],
+        ], [
+            'name.unique' => 'اسم الشركة موجود بالفعل، يرجى اختيار اسم آخر.',
         ]);
         $data['is_active'] = $request->boolean('is_active', true);
         $this->service->create($data);
