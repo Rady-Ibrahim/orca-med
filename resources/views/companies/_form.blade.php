@@ -7,8 +7,9 @@
 
 <div class="grid grid-cols-2 gap-4">
     <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">البريد الإلكتروني</label>
-        <input type="email" name="contact_email" value="{{ old('contact_email', $company?->contact_email) }}" dir="ltr"
+        <label class="block text-sm font-medium text-slate-700 mb-1">البريد الإلكتروني <span class="text-red-500">*</span></label>
+        <input type="email" name="contact_email" value="{{ old('contact_email', $company?->contact_email) }}"
+               required dir="ltr"
             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 @error('contact_email') border-red-400 @enderror">
         @error('contact_email')<p class="text-red-500 text-xs mt-1">{{ $message }}</p>@enderror
     </div>

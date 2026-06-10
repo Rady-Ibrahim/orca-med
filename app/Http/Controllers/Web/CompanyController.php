@@ -27,10 +27,10 @@ class CompanyController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'name'                   => ['required', 'string', 'max:255'],
-            'contact_email'          => ['nullable', 'email', 'max:255'],
-            'contact_phone'          => ['nullable', 'string', 'max:30'],
-            'is_active'              => ['boolean'],
+            'name'          => ['required', 'string', 'max:255'],
+            'contact_email' => ['required', 'email', 'max:255'],
+            'contact_phone' => ['nullable', 'string', 'max:30'],
+            'is_active'     => ['boolean'],
         ]);
         $data['is_active'] = $request->boolean('is_active', true);
         $this->service->create($data);
@@ -45,10 +45,10 @@ class CompanyController extends Controller
     public function update(Request $request, Company $company): RedirectResponse
     {
         $data = $request->validate([
-            'name'                   => ['required', 'string', 'max:255'],
-            'contact_email'          => ['nullable', 'email', 'max:255'],
-            'contact_phone'          => ['nullable', 'string', 'max:30'],
-            'is_active'              => ['boolean'],
+            'name'          => ['required', 'string', 'max:255'],
+            'contact_email' => ['required', 'email', 'max:255'],
+            'contact_phone' => ['nullable', 'string', 'max:30'],
+            'is_active'     => ['boolean'],
         ]);
         $data['is_active'] = $request->boolean('is_active');
         $this->service->update($company, $data);

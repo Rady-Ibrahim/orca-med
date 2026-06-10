@@ -156,19 +156,14 @@
         </table>
     </div>
 
-    {{-- Pagination --}}
-    @if(isset($pharmacy_details['links']))
+{{-- Pagination --}}
+@if(isset($pharmacy_details['links']))
     <div class="mt-4 flex justify-center">
-        {!! $pharmacy_details['links'] !!}
+        @if(is_string($pharmacy_details['links']) || (is_object($pharmacy_details['links']) && method_exists($pharmacy_details['links'], '__toString')))
+            {!! $pharmacy_details['links'] !!}
+        @elseif(is_array($pharmacy_details['links']))
+            @endif
     </div>
-    @endif
-</div>
-@else
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 text-center text-slate-500">
-    لا توجد بيانات للعرض
-</div>
-@endif
-</div>
 @endif
 
 @endsection

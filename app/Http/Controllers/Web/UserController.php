@@ -40,12 +40,11 @@ class UserController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'name'         => ['required', 'string', 'max:255'],
-            'email'        => ['required', 'email', 'unique:users,email'],
-            'password'     => ['required', 'string', 'min:8'],
-            'role'         => ['required', Rule::enum(UserRole::class)],
-            'company_id'   => ['nullable', 'exists:companies,id'],
-            'warehouse_id' => ['nullable', 'exists:warehouses,id'],
+            'name'       => ['required', 'string', 'max:255'],
+            'email'      => ['required', 'email', 'unique:users,email'],
+            'password'   => ['required', 'string', 'min:8'],
+            'role'       => ['required', Rule::in(['admin', 'company'])],
+            'company_id' => ['required_if:role,company', 'nullable', 'exists:companies,id'],
         ]);
         $this->service->create($data);
         return redirect()->route('users.index')->with('status', 'تمت إضافة المستخدم بنجاح.');
@@ -62,12 +61,11 @@ class UserController extends Controller
     public function update(Request $request, User $user): RedirectResponse
     {
         $data = $request->validate([
-            'name'         => ['required', 'string', 'max:255'],
-            'email'        => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)],
-            'password'     => ['nullable', 'string', 'min:8'],
-            'role'         => ['required', Rule::enum(UserRole::class)],
-            'company_id'   => ['nullable', 'exists:companies,id'],
-            'warehouse_id' => ['nullable', 'exists:warehouses,id'],
+            'name'       => ['required', 'string', 'max:255'],
+            'email'      => ['required', 'email', Rule::unique('users', 'email')->ignore($user->id)],
+            'password'   => ['nullable', 'string', 'min:8'],
+            'role'       => ['required', Rule::in(['admin', 'company'])],
+            'company_id' => ['required_if:role,company', 'nullable', 'exists:companies,id'],
         ]);
         $this->service->update($user, $data);
         return redirect()->route('users.index')->with('status', 'تم تحديث بيانات المستخدم بنجاح.');
