@@ -123,7 +123,7 @@
 {{-- Tab Content: Pharmacy Details (for activated companies) --}}
 @if(auth()->user()->hasAnalyticsAccess())
 <div id="content-pharmacy-details" class="tab-content hidden">
-@if(isset($pharmacy_details) && !empty($pharmacy_details['data']))
+@if(isset($pharmacy_details) && $pharmacy_details->isNotEmpty())
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
     <h3 class="text-lg font-semibold text-slate-800 mb-4">تفاصيل المبيعات حسب الصيدليات</h3>
 
@@ -141,15 +141,15 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-200">
-                @foreach($pharmacy_details['data'] as $item)
+                @foreach($pharmacy_details as $item)
                 <tr class="hover:bg-slate-50">
-                    <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $item['product_name'] }}</td>
-                    <td class="px-4 py-3 text-sm text-slate-700">{{ $item['pharmacy_name'] }}</td>
-                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item['province_name'] }}</td>
-                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item['pharmacy_phone'] ?? '-' }}</td>
-                    <td class="px-4 py-3 text-sm font-semibold text-green-600">{{ number_format($item['total_quantity']) }}</td>
-                    <td class="px-4 py-3 text-sm text-slate-600">{{ number_format($item['avg_unit_price'] ?? 0, 2) }} ج.م</td>
-                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item['sales_count'] }}</td>
+                    <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $item->product_name }}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700">{{ $item->pharmacy_name }}</td>
+                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item->province_name }}</td>
+                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item->pharmacy_phone ?? '-' }}</td>
+                    <td class="px-4 py-3 text-sm font-semibold text-green-600">{{ number_format($item->total_quantity) }}</td>
+                    <td class="px-4 py-3 text-sm text-slate-600">{{ number_format($item->avg_unit_price ?? 0, 2) }} ج.م</td>
+                    <td class="px-4 py-3 text-sm text-slate-600">{{ $item->sales_count }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -157,9 +157,9 @@
     </div>
 
 {{-- Pagination --}}
-@if(isset($pharmacy_details['links']))
+@if($pharmacy_details->hasPages())
     <div class="mt-4 flex justify-center">
-        {!! $pharmacy_details['links'] !!}
+        {{ $pharmacy_details->links() }}
     </div>
 @endif
 

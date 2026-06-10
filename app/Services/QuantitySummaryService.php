@@ -220,7 +220,7 @@ class QuantitySummaryService
      * Get pharmacy details for activated companies
      * Returns detailed list of pharmacies with quantities
      */
-    public function getPharmacyDetails(User $user, array $filters = []): array
+    public function getPharmacyDetails(User $user, array $filters = []): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
         $from = $filters['from'] ?? null;
         $to = $filters['to'] ?? null;
@@ -266,7 +266,7 @@ class QuantitySummaryService
             $query->where('pharmacies.id', $pharmacyId);
         }
 
-        return $query->paginate(50)->toArray();
+        return $query->paginate(50);
     }
 
     private function applyDateFilter($query, ?string $from, ?string $to): void

@@ -462,7 +462,7 @@ class DashboardService
     /**
      * Get pharmacy details for activated companies
      */
-    public function getPharmacyDetails(User $user, array $filters = []): array
+    public function getPharmacyDetails(User $user, array $filters = []): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
         return $this->quantitySummary->getPharmacyDetails($user, $filters);
     }
