@@ -49,6 +49,11 @@ Route::middleware('auth')->group(function () {
         Route::post('/products/{product}/merge', [\App\Http\Controllers\Web\ProductController::class, 'merge'])->name('products.merge');
         Route::post('/products/merge-search', [\App\Http\Controllers\Web\ProductController::class, 'mergeSearch'])->name('products.merge-search');
         Route::resource('sales',    \App\Http\Controllers\Web\SalesController::class)->only(['index', 'show']);
+        Route::delete('/sales/bulk',    [\App\Http\Controllers\Web\SalesController::class, 'bulkDestroy'])->name('sales.bulk-destroy');
+        Route::delete('/sales/all',     [\App\Http\Controllers\Web\SalesController::class, 'destroyAll'])->name('sales.destroy-all');
+        Route::delete('/sales/{sale}',  [\App\Http\Controllers\Web\SalesController::class, 'destroy'])->name('sales.destroy');
+        Route::get('/sales/export/pdf',   [\App\Http\Controllers\Web\SalesController::class, 'exportPdf'])->name('sales.export.pdf');
+        Route::get('/sales/export/excel', [\App\Http\Controllers\Web\SalesController::class, 'exportExcel'])->name('sales.export.excel');
         Route::get('/reports',      [\App\Http\Controllers\Web\ReportController::class,  'index'])->name('reports.index');
         Route::get('/reports/sales/export', [\App\Http\Controllers\Web\ReportController::class, 'exportSales'])->name('reports.export-sales');
         Route::get('/reports/sales/excel', [\App\Http\Controllers\Web\ReportController::class, 'exportSalesExcel'])->name('reports.export-sales-excel');
