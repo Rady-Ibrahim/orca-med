@@ -90,24 +90,26 @@
             <div class="p-4 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap">
                 <div class="flex items-center gap-3">
                     <h3 class="text-lg font-semibold text-slate-800">المبيعات</h3>
-                    {{-- Bulk delete button - shown when rows selected --}}
+                    {{-- تم تعديل text-red إلى text-white لتعديل شكل الخط داخل الزرار الأحمر --}}
                     <button type="button" id="bulkDeleteBtn"
                         onclick="confirmBulkDelete()"
-                        class="hidden items-center gap-1.5 bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 text-sm font-medium transition-colors">
+                        class="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        style="background-color: #dc2626;">
+                        
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                         </svg>
+
                         حذف المحدد (<span id="selectedCount">0</span>)
                     </button>
                 </div>
                 
                 <div class="flex items-center gap-2">
-
                     <button
                         type="button"
                         onclick="confirmDeleteAll(event)"
                         style="background:red;color:white;padding:8px 12px;border-radius:8px;">
-
                         حذف الكل
                     </button>
                     <a href="{{ route('sales.export.pdf', request()->query()) }}" target="_blank"
@@ -177,7 +179,7 @@
                             </tr>
                         @endforelse
                     </tbody>
-                    {{-- حماية التوتالز من تحويل الـ Arrays المتداخلة --}}
+                    
                     @if(isset($tableTotals) && (is_array($tableTotals) ? ($tableTotals['count'] ?? 0) : ($tableTotals->count ?? 0)) > 0)
                         <tfoot class="bg-slate-100 font-semibold">
                             <tr>
@@ -198,7 +200,7 @@
                                 </td>
                                 <td class="px-4 py-3 text-sm text-slate-500" colspan="3">—</td>
                             </tr>
-                        </footer>
+                        </tfoot>
                     @endif
                 </table>
             </div>
@@ -217,36 +219,44 @@
 
 @push('scripts')
 <script>
-const selectAll      = document.getElementById('selectAll');
-const checkboxes     = document.querySelectorAll('.row-checkbox');
-const bulkDeleteBtn  = document.getElementById('bulkDeleteBtn');
-const selectedCount  = document.getElementById('selectedCount');
+// تأكيد جلب العناصر للتأكد من عدم وجود تضارب برامترات الكاش
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll      = document.getElementById('selectAll');
+    const checkboxes     = document.querySelectorAll('.row-checkbox');
+    const bulkDeleteBtn  = document.getElementById('bulkDeleteBtn');
+    const selectedCount  = document.getElementById('selectedCount');
 
-function updateBulkBtn() {
-    const checked = document.querySelectorAll('.row-checkbox:checked').length;
-    selectedCount.textContent = checked;
-    if (checked > 0) {
-        bulkDeleteBtn.classList.remove('hidden');
-        bulkDeleteBtn.classList.add('inline-flex');
-    } else {
-        bulkDeleteBtn.classList.add('hidden');
-        bulkDeleteBtn.classList.remove('inline-flex');
+    function updateBulkBtn() {
+        const checked = document.querySelectorAll('.row-checkbox:checked').length;
+        if(selectedCount) selectedCount.textContent = checked;
+        
+        if (checked > 0) {
+            bulkDeleteBtn.classList.remove('hidden');
+            bulkDeleteBtn.classList.add('inline-flex');
+        } else {
+            bulkDeleteBtn.classList.add('hidden');
+            bulkDeleteBtn.classList.remove('inline-flex');
+        }
+        if(selectAll) {
+            selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+            selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
+        }
     }
-    selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
-    selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
-}
 
-selectAll.addEventListener('change', function () {
-    checkboxes.forEach(cb => cb.checked = this.checked);
-    updateBulkBtn();
+    if(selectAll) {
+        selectAll.addEventListener('change', function () {
+            checkboxes.forEach(cb => cb.checked = this.checked);
+            updateBulkBtn();
+        });
+    }
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateBulkBtn));
 });
-
-checkboxes.forEach(cb => cb.addEventListener('change', updateBulkBtn));
 
 function confirmBulkDelete() {
     const count = document.querySelectorAll('.row-checkbox:checked').length;
     if (count === 0) return;
-    if (confirm(`هل تريد حذف ${count} سجل بيع؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+    if (confirm(`هل تريد حذف ${count} سجل بيع محدد؟ لا يمكن التراجع عن هذا الإجراء.`)) {
         document.getElementById('bulkForm').submit();
     }
 }
